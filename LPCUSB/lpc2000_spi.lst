@@ -1,0 +1,470 @@
+   1              		.cpu arm7tdmi-s
+   2              		.fpu softvfp
+   3              		.eabi_attribute 20, 1
+   4              		.eabi_attribute 21, 1
+   5              		.eabi_attribute 23, 3
+   6              		.eabi_attribute 24, 1
+   7              		.eabi_attribute 25, 1
+   8              		.eabi_attribute 26, 1
+   9              		.eabi_attribute 30, 4
+  10              		.eabi_attribute 18, 4
+  11              		.file	"lpc2000_spi.c"
+  19              	.Ltext0:
+  20              		.align	2
+  21              		.global	SPISetSpeed
+  23              	SPISetSpeed:
+  24              	.LFB1:
+  25              		.file 1 "LPCUSB/lpc2000_spi.c"
+   1:LPCUSB/lpc2000_spi.c **** /*****************************************************************************\
+   2:LPCUSB/lpc2000_spi.c **** *              efs - General purpose Embedded Filesystem library              *
+   3:LPCUSB/lpc2000_spi.c **** *          --------------------- -----------------------------------          *
+   4:LPCUSB/lpc2000_spi.c **** *                                                                             *
+   5:LPCUSB/lpc2000_spi.c **** * Filename : lpc2000_spi.c                                                     *
+   6:LPCUSB/lpc2000_spi.c **** * Description : This  contains the functions needed to use efs for        *
+   7:LPCUSB/lpc2000_spi.c **** *               accessing files on an SD-card connected to an LPC2xxx.        *
+   8:LPCUSB/lpc2000_spi.c **** *                                                                             *
+   9:LPCUSB/lpc2000_spi.c **** * This library is free software; you can redistribute it and/or               *
+  10:LPCUSB/lpc2000_spi.c **** * modify it under the terms of the GNU Lesser General Public                  *
+  11:LPCUSB/lpc2000_spi.c **** * License as published by the Free Software Foundation; either                *
+  12:LPCUSB/lpc2000_spi.c **** * version 2.1 of the License, or (at your option) any later version.          *
+  13:LPCUSB/lpc2000_spi.c **** *                                                                             *
+  14:LPCUSB/lpc2000_spi.c **** * This library is distributed in the hope that it will be useful,             *
+  15:LPCUSB/lpc2000_spi.c **** * but WITHOUT ANY WARRANTY; without even the implied warranty of              *
+  16:LPCUSB/lpc2000_spi.c **** * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU           *
+  17:LPCUSB/lpc2000_spi.c **** * Lesser General Public License for more details.                             *
+  18:LPCUSB/lpc2000_spi.c **** *                                                                             *
+  19:LPCUSB/lpc2000_spi.c **** *                                                    (c)2005 Martin Thomas    *
+  20:LPCUSB/lpc2000_spi.c **** *                                                                             *
+  21:LPCUSB/lpc2000_spi.c **** \*****************************************************************************/
+  22:LPCUSB/lpc2000_spi.c **** 
+  23:LPCUSB/lpc2000_spi.c **** /*
+  24:LPCUSB/lpc2000_spi.c ****     2006, Bertrik Sikken, modified for LPCUSB
+  25:LPCUSB/lpc2000_spi.c **** */
+  26:LPCUSB/lpc2000_spi.c **** 
+  27:LPCUSB/lpc2000_spi.c **** 
+  28:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+  29:LPCUSB/lpc2000_spi.c **** #include "type.h"
+  30:LPCUSB/lpc2000_spi.c **** #include <stdio.h>
+  31:LPCUSB/lpc2000_spi.c **** #include "rprintf.h"
+  32:LPCUSB/lpc2000_spi.c **** #include "LPC214x.h"
+  33:LPCUSB/lpc2000_spi.c **** #include "spi.h"
+  34:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+  35:LPCUSB/lpc2000_spi.c **** 
+  36:LPCUSB/lpc2000_spi.c **** // SP0SPCR  Bit-Definitions
+  37:LPCUSB/lpc2000_spi.c **** #define CPHA    3
+  38:LPCUSB/lpc2000_spi.c **** #define CPOL    4
+  39:LPCUSB/lpc2000_spi.c **** #define MSTR    5
+  40:LPCUSB/lpc2000_spi.c **** // SP0SPSR  Bit-Definitions
+  41:LPCUSB/lpc2000_spi.c **** #define SPIF    7
+  42:LPCUSB/lpc2000_spi.c **** 
+  43:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+  44:LPCUSB/lpc2000_spi.c **** 
+  45:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+  46:LPCUSB/lpc2000_spi.c **** 
+  47:LPCUSB/lpc2000_spi.c **** // Utility-functions which does not toogle CS.
+  48:LPCUSB/lpc2000_spi.c **** // Only needed during card-init. During init
+  49:LPCUSB/lpc2000_spi.c **** // the automatic chip-select is disabled for SSP
+  50:LPCUSB/lpc2000_spi.c **** 
+  51:LPCUSB/lpc2000_spi.c **** static U8 my_SPISend(U8 outgoing)
+  52:LPCUSB/lpc2000_spi.c **** {
+  53:LPCUSB/lpc2000_spi.c ****     S0SPDR = outgoing;
+  54:LPCUSB/lpc2000_spi.c ****     while (!(S0SPSR & (1 << SPIF)));
+  55:LPCUSB/lpc2000_spi.c ****     return S0SPDR;
+  56:LPCUSB/lpc2000_spi.c **** }
+  57:LPCUSB/lpc2000_spi.c **** 
+  58:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+  59:LPCUSB/lpc2000_spi.c **** 
+  60:LPCUSB/lpc2000_spi.c **** void SPISetSpeed(U8 speed)
+  61:LPCUSB/lpc2000_spi.c **** {
+  26              		.loc 1 61 0
+  27              		@ Function supports interworking.
+  28              		@ args = 0, pretend = 0, frame = 0
+  29              		@ frame_needed = 0, uses_anonymous_args = 0
+  30              		@ link register save eliminated.
+  31              	.LVL0:
+  62:LPCUSB/lpc2000_spi.c ****     speed &= 0xFE;
+  32              		.loc 1 62 0
+  33 0000 FE0000E2 		and	r0, r0, #254
+  34              	.LVL1:
+  63:LPCUSB/lpc2000_spi.c ****     if (speed < SPI_PRESCALE_MIN)
+  35              		.loc 1 63 0
+  36 0004 070050E3 		cmp	r0, #7
+  64:LPCUSB/lpc2000_spi.c ****     {
+  65:LPCUSB/lpc2000_spi.c ****         speed = SPI_PRESCALE_MIN;
+  66:LPCUSB/lpc2000_spi.c ****     }
+  67:LPCUSB/lpc2000_spi.c ****     SPI_PRESCALE_REG = speed;
+  37              		.loc 1 67 0
+  38 0008 08309FE5 		ldr	r3, .L4
+  39              		.loc 1 63 0
+  40 000c 0800A093 		movls	r0, #8
+  41              	.LVL2:
+  42              		.loc 1 67 0
+  43 0010 0C0083E5 		str	r0, [r3, #12]
+  68:LPCUSB/lpc2000_spi.c **** }
+  44              		.loc 1 68 0
+  45 0014 1EFF2FE1 		bx	lr
+  46              	.L5:
+  47              		.align	2
+  48              	.L4:
+  49 0018 000002E0 		.word	-536739840
+  50              	.LFE1:
+  52              		.align	2
+  53              		.global	SPISend
+  55              	SPISend:
+  56              	.LFB3:
+  69:LPCUSB/lpc2000_spi.c **** 
+  70:LPCUSB/lpc2000_spi.c **** 
+  71:LPCUSB/lpc2000_spi.c **** void SPIInit(void)
+  72:LPCUSB/lpc2000_spi.c **** {
+  73:LPCUSB/lpc2000_spi.c ****     U8 i;
+  74:LPCUSB/lpc2000_spi.c ****     //U32 j;
+  75:LPCUSB/lpc2000_spi.c **** 
+  76:LPCUSB/lpc2000_spi.c ****     rprintf("spiInit for SPI(0)\n");
+  77:LPCUSB/lpc2000_spi.c **** 
+  78:LPCUSB/lpc2000_spi.c ****     // setup GPIO
+  79:LPCUSB/lpc2000_spi.c ****     PINSEL2 = 0;
+  80:LPCUSB/lpc2000_spi.c **** 
+  81:LPCUSB/lpc2000_spi.c **** 	SPI_IODIR |= (1 << SPI_SCK_PIN) | (1 << SPI_MOSI_PIN);
+  82:LPCUSB/lpc2000_spi.c ****     SPI_SS_IODIR |= (1 << SPI_SS_PIN);
+  83:LPCUSB/lpc2000_spi.c ****     SPI_IODIR &= ~(1 << SPI_MISO_PIN);
+  84:LPCUSB/lpc2000_spi.c **** 
+  85:LPCUSB/lpc2000_spi.c ****     // reset Pin-Functions
+  86:LPCUSB/lpc2000_spi.c ****     SPI_PINSEL &= ~((3 << SPI_SCK_FUNCBIT) | (3 << SPI_MISO_FUNCBIT) | (3 << SPI_MOSI_FUNCBIT));
+  87:LPCUSB/lpc2000_spi.c ****     SPI_PINSEL |= ((1 << SPI_SCK_FUNCBIT) | (1 << SPI_MISO_FUNCBIT) | (1 << SPI_MOSI_FUNCBIT));
+  88:LPCUSB/lpc2000_spi.c **** 
+  89:LPCUSB/lpc2000_spi.c ****     // set Chip-Select high - unselect card
+  90:LPCUSB/lpc2000_spi.c ****     UNSELECT_CARD();
+  91:LPCUSB/lpc2000_spi.c **** 
+  92:LPCUSB/lpc2000_spi.c ****     // enable SPI-Master
+  93:LPCUSB/lpc2000_spi.c ****     S0SPCR = (1 << MSTR) | (0 << CPOL);   // TODO: check CPOL
+  94:LPCUSB/lpc2000_spi.c **** 
+  95:LPCUSB/lpc2000_spi.c ****     // low speed during init
+  96:LPCUSB/lpc2000_spi.c ****     SPISetSpeed(254);
+  97:LPCUSB/lpc2000_spi.c **** 
+  98:LPCUSB/lpc2000_spi.c ****     /* Send 20 spi commands with card not selected */
+  99:LPCUSB/lpc2000_spi.c ****     for (i = 0; i < 21; i++)
+ 100:LPCUSB/lpc2000_spi.c ****     {
+ 101:LPCUSB/lpc2000_spi.c ****         my_SPISend(0xff);
+ 102:LPCUSB/lpc2000_spi.c ****     }
+ 103:LPCUSB/lpc2000_spi.c **** }
+ 104:LPCUSB/lpc2000_spi.c **** 
+ 105:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+ 106:LPCUSB/lpc2000_spi.c **** 
+ 107:LPCUSB/lpc2000_spi.c **** /*****************************************************************************/
+ 108:LPCUSB/lpc2000_spi.c **** 
+ 109:LPCUSB/lpc2000_spi.c **** U8 SPISend(U8 outgoing)
+ 110:LPCUSB/lpc2000_spi.c **** {
+  57              		.loc 1 110 0
+  58              		@ Function supports interworking.
+  59              		@ args = 0, pretend = 0, frame = 0
+  60              		@ frame_needed = 0, uses_anonymous_args = 0
+  61              		@ link register save eliminated.
+  62              	.LVL3:
+ 111:LPCUSB/lpc2000_spi.c ****     U8 incoming;
+ 112:LPCUSB/lpc2000_spi.c **** 
+ 113:LPCUSB/lpc2000_spi.c ****     SELECT_CARD();
+  63              		.loc 1 113 0
+  64 001c 3C209FE5 		ldr	r2, .L11
+  65 0020 0C1092E5 		ldr	r1, [r2, #12]
+ 114:LPCUSB/lpc2000_spi.c ****     S0SPDR = outgoing;
+  66              		.loc 1 114 0
+  67 0024 38309FE5 		ldr	r3, .L11+4
+  68              		.loc 1 113 0
+  69 0028 801081E3 		orr	r1, r1, #128
+  70 002c 0C1082E5 		str	r1, [r2, #12]
+  71              		.loc 1 114 0
+  72 0030 080083E5 		str	r0, [r3, #8]
+  73              	.L7:
+ 115:LPCUSB/lpc2000_spi.c ****     while (!(S0SPSR & (1 << SPIF)));
+  74              		.loc 1 115 0
+  75 0034 042093E5 		ldr	r2, [r3, #4]
+  76 0038 800012E3 		tst	r2, #128
+  77 003c FCFFFF0A 		beq	.L7
+ 116:LPCUSB/lpc2000_spi.c ****     incoming = S0SPDR;
+ 117:LPCUSB/lpc2000_spi.c ****     UNSELECT_CARD();
+  78              		.loc 1 117 0
+  79 0040 18309FE5 		ldr	r3, .L11
+  80              		.loc 1 116 0
+  81 0044 18209FE5 		ldr	r2, .L11+4
+  82 0048 080092E5 		ldr	r0, [r2, #8]
+  83              	.LVL4:
+  84              		.loc 1 117 0
+  85 004c 042093E5 		ldr	r2, [r3, #4]
+  86 0050 802082E3 		orr	r2, r2, #128
+  87 0054 FF0000E2 		and	r0, r0, #255
+  88 0058 042083E5 		str	r2, [r3, #4]
+ 118:LPCUSB/lpc2000_spi.c **** 
+ 119:LPCUSB/lpc2000_spi.c ****     return incoming;
+ 120:LPCUSB/lpc2000_spi.c **** }
+  89              		.loc 1 120 0
+  90 005c 1EFF2FE1 		bx	lr
+  91              	.L12:
+  92              		.align	2
+  93              	.L11:
+  94 0060 008002E0 		.word	-536707072
+  95 0064 000002E0 		.word	-536739840
+  96              	.LFE3:
+  98              		.align	2
+  99              		.global	SPISendN
+ 101              	SPISendN:
+ 102              	.LFB4:
+ 121:LPCUSB/lpc2000_spi.c **** 
+ 122:LPCUSB/lpc2000_spi.c **** void SPISendN(U8 * pbBuf, int iLen)
+ 123:LPCUSB/lpc2000_spi.c **** {
+ 103              		.loc 1 123 0
+ 104              		@ Function supports interworking.
+ 105              		@ args = 0, pretend = 0, frame = 0
+ 106              		@ frame_needed = 0, uses_anonymous_args = 0
+ 107              		@ link register save eliminated.
+ 108              	.LVL5:
+ 124:LPCUSB/lpc2000_spi.c ****     int i;
+ 125:LPCUSB/lpc2000_spi.c **** 
+ 126:LPCUSB/lpc2000_spi.c ****     SELECT_CARD();
+ 109              		.loc 1 126 0
+ 110 0068 48309FE5 		ldr	r3, .L19
+ 111 006c 0C2093E5 		ldr	r2, [r3, #12]
+ 112 0070 802082E3 		orr	r2, r2, #128
+ 113 0074 0C2083E5 		str	r2, [r3, #12]
+ 114 0078 0030A0E3 		mov	r3, #0
+ 115              	.LVL6:
+ 127:LPCUSB/lpc2000_spi.c ****     for (i = 0; i < iLen; i++)
+ 128:LPCUSB/lpc2000_spi.c ****     {
+ 129:LPCUSB/lpc2000_spi.c ****         S0SPDR = pbBuf[i];
+ 116              		.loc 1 129 0
+ 117 007c 38209FE5 		ldr	r2, .L19+4
+ 118              		.loc 1 127 0
+ 119 0080 050000EA 		b	.L14
+ 120              	.L16:
+ 121              		.loc 1 129 0
+ 122 0084 03C0D0E7 		ldrb	ip, [r0, r3]	@ zero_extendqisi2
+ 123 0088 08C082E5 		str	ip, [r2, #8]
+ 124              	.L15:
+ 130:LPCUSB/lpc2000_spi.c ****         while (!(S0SPSR & (1 << SPIF)));
+ 125              		.loc 1 130 0
+ 126 008c 04C092E5 		ldr	ip, [r2, #4]
+ 127 0090 80001CE3 		tst	ip, #128
+ 128 0094 FCFFFF0A 		beq	.L15
+ 129              		.loc 1 127 0
+ 130 0098 013083E2 		add	r3, r3, #1
+ 131              	.L14:
+ 132 009c 010053E1 		cmp	r3, r1
+ 133 00a0 F7FFFFBA 		blt	.L16
+ 131:LPCUSB/lpc2000_spi.c ****     }
+ 132:LPCUSB/lpc2000_spi.c ****     UNSELECT_CARD();
+ 134              		.loc 1 132 0
+ 135 00a4 0C309FE5 		ldr	r3, .L19
+ 136              	.LVL7:
+ 137 00a8 042093E5 		ldr	r2, [r3, #4]
+ 138 00ac 802082E3 		orr	r2, r2, #128
+ 139 00b0 042083E5 		str	r2, [r3, #4]
+ 133:LPCUSB/lpc2000_spi.c **** }
+ 140              		.loc 1 133 0
+ 141 00b4 1EFF2FE1 		bx	lr
+ 142              	.L20:
+ 143              		.align	2
+ 144              	.L19:
+ 145 00b8 008002E0 		.word	-536707072
+ 146 00bc 000002E0 		.word	-536739840
+ 147              	.LFE4:
+ 149              		.align	2
+ 150              		.global	SPIRecvN
+ 152              	SPIRecvN:
+ 153              	.LFB5:
+ 134:LPCUSB/lpc2000_spi.c **** 
+ 135:LPCUSB/lpc2000_spi.c **** void SPIRecvN(U8 * pbBuf, int iLen)
+ 136:LPCUSB/lpc2000_spi.c **** {
+ 154              		.loc 1 136 0
+ 155              		@ Function supports interworking.
+ 156              		@ args = 0, pretend = 0, frame = 0
+ 157              		@ frame_needed = 0, uses_anonymous_args = 0
+ 158              		@ link register save eliminated.
+ 159              	.LVL8:
+ 137:LPCUSB/lpc2000_spi.c ****     int i;
+ 138:LPCUSB/lpc2000_spi.c **** 
+ 139:LPCUSB/lpc2000_spi.c ****     SELECT_CARD();
+ 160              		.loc 1 139 0
+ 161 00c0 5C209FE5 		ldr	r2, .L27
+ 162 00c4 0CC092E5 		ldr	ip, [r2, #12]
+ 140:LPCUSB/lpc2000_spi.c ****     for (i = 0; i < iLen; i++)
+ 141:LPCUSB/lpc2000_spi.c ****     {
+ 142:LPCUSB/lpc2000_spi.c ****         S0SPDR = 0xFF;
+ 163              		.loc 1 142 0
+ 164 00c8 58309FE5 		ldr	r3, .L27+4
+ 165              		.loc 1 139 0
+ 166 00cc 80C08CE3 		orr	ip, ip, #128
+ 167 00d0 0CC082E5 		str	ip, [r2, #12]
+ 168              		.loc 1 136 0
+ 169 00d4 30002DE9 		stmfd	sp!, {r4, r5}
+ 170              	.LCFI0:
+ 171              		.loc 1 139 0
+ 172 00d8 0020A0E3 		mov	r2, #0
+ 173              	.LVL9:
+ 174              		.loc 1 142 0
+ 175 00dc FF40A0E3 		mov	r4, #255
+ 143:LPCUSB/lpc2000_spi.c ****         while (!(S0SPSR & (1 << SPIF)));
+ 176              		.loc 1 143 0
+ 177 00e0 03C0A0E1 		mov	ip, r3
+ 178              		.loc 1 140 0
+ 179 00e4 060000EA 		b	.L22
+ 180              	.L24:
+ 181              		.loc 1 142 0
+ 182 00e8 084083E5 		str	r4, [r3, #8]
+ 183              	.L23:
+ 184              		.loc 1 143 0
+ 185 00ec 045093E5 		ldr	r5, [r3, #4]
+ 186 00f0 800015E3 		tst	r5, #128
+ 187 00f4 FCFFFF0A 		beq	.L23
+ 144:LPCUSB/lpc2000_spi.c ****         pbBuf[i] = S0SPDR;
+ 188              		.loc 1 144 0
+ 189 00f8 08509CE5 		ldr	r5, [ip, #8]
+ 190 00fc 0250C0E7 		strb	r5, [r0, r2]
+ 191              		.loc 1 140 0
+ 192 0100 012082E2 		add	r2, r2, #1
+ 193              	.L22:
+ 194 0104 010052E1 		cmp	r2, r1
+ 195 0108 F6FFFFBA 		blt	.L24
+ 145:LPCUSB/lpc2000_spi.c ****     }
+ 146:LPCUSB/lpc2000_spi.c ****     UNSELECT_CARD();
+ 196              		.loc 1 146 0
+ 197 010c 10309FE5 		ldr	r3, .L27
+ 198 0110 042093E5 		ldr	r2, [r3, #4]
+ 199              	.LVL10:
+ 200 0114 802082E3 		orr	r2, r2, #128
+ 201 0118 042083E5 		str	r2, [r3, #4]
+ 147:LPCUSB/lpc2000_spi.c **** }
+ 202              		.loc 1 147 0
+ 203 011c 3000BDE8 		ldmfd	sp!, {r4, r5}
+ 204 0120 1EFF2FE1 		bx	lr
+ 205              	.L28:
+ 206              		.align	2
+ 207              	.L27:
+ 208 0124 008002E0 		.word	-536707072
+ 209 0128 000002E0 		.word	-536739840
+ 210              	.LFE5:
+ 212              		.align	2
+ 213              		.global	SPIInit
+ 215              	SPIInit:
+ 216              	.LFB2:
+ 217              		.loc 1 72 0
+ 218              		@ Function supports interworking.
+ 219              		@ args = 0, pretend = 0, frame = 0
+ 220              		@ frame_needed = 0, uses_anonymous_args = 0
+ 221              		.loc 1 76 0
+ 222 012c A8009FE5 		ldr	r0, .L35
+ 223              		.loc 1 72 0
+ 224 0130 10402DE9 		stmfd	sp!, {r4, lr}
+ 225              	.LCFI1:
+ 226              		.loc 1 76 0
+ 227 0134 FEFFFFEB 		bl	rprintf
+ 228              		.loc 1 79 0
+ 229 0138 A0209FE5 		ldr	r2, .L35+4
+ 230 013c 0000A0E3 		mov	r0, #0
+ 231 0140 140082E5 		str	r0, [r2, #20]
+ 232              		.loc 1 81 0
+ 233 0144 98309FE5 		ldr	r3, .L35+8
+ 234 0148 081093E5 		ldr	r1, [r3, #8]
+ 235 014c 501081E3 		orr	r1, r1, #80
+ 236 0150 081083E5 		str	r1, [r3, #8]
+ 237              		.loc 1 82 0
+ 238 0154 081093E5 		ldr	r1, [r3, #8]
+ 239 0158 801081E3 		orr	r1, r1, #128
+ 240 015c 081083E5 		str	r1, [r3, #8]
+ 241              		.loc 1 83 0
+ 242 0160 081093E5 		ldr	r1, [r3, #8]
+ 243 0164 2010C1E3 		bic	r1, r1, #32
+ 244 0168 081083E5 		str	r1, [r3, #8]
+ 245              		.loc 1 86 0
+ 246 016c 001092E5 		ldr	r1, [r2, #0]
+ 247 0170 3F1CC1E3 		bic	r1, r1, #16128
+ 248 0174 001082E5 		str	r1, [r2, #0]
+ 249              		.loc 1 87 0
+ 250 0178 001092E5 		ldr	r1, [r2, #0]
+ 251 017c 151C81E3 		orr	r1, r1, #5376
+ 252 0180 001082E5 		str	r1, [r2, #0]
+ 253              		.loc 1 90 0
+ 254 0184 042093E5 		ldr	r2, [r3, #4]
+ 255              		.loc 1 93 0
+ 256 0188 58109FE5 		ldr	r1, .L35+12
+ 257              		.loc 1 90 0
+ 258 018c 802082E3 		orr	r2, r2, #128
+ 259 0190 042083E5 		str	r2, [r3, #4]
+ 260              		.loc 1 93 0
+ 261 0194 2030A0E3 		mov	r3, #32
+ 262 0198 003081E5 		str	r3, [r1, #0]
+ 263              	.LBB6:
+ 264              	.LBB7:
+ 265              		.loc 1 67 0
+ 266 019c DE3083E2 		add	r3, r3, #222
+ 267 01a0 0C3081E5 		str	r3, [r1, #12]
+ 268 01a4 0020A0E1 		mov	r2, r0
+ 269              	.LVL11:
+ 270              	.LBE7:
+ 271              	.LBE6:
+ 272              	.LBB8:
+ 273              	.LBB9:
+ 274              		.loc 1 53 0
+ 275 01a8 0130A0E1 		mov	r3, r1
+ 276 01ac FF0080E2 		add	r0, r0, #255
+ 277              	.L31:
+ 278 01b0 080083E5 		str	r0, [r3, #8]
+ 279              	.L30:
+ 280              		.loc 1 54 0
+ 281 01b4 04C093E5 		ldr	ip, [r3, #4]
+ 282 01b8 80001CE3 		tst	ip, #128
+ 283 01bc FCFFFF0A 		beq	.L30
+ 284              	.LBE9:
+ 285              	.LBE8:
+ 286              		.loc 1 99 0
+ 287 01c0 012082E2 		add	r2, r2, #1
+ 288              	.LVL12:
+ 289 01c4 FF2002E2 		and	r2, r2, #255
+ 290              	.LVL13:
+ 291 01c8 150052E3 		cmp	r2, #21
+ 292              	.LBB11:
+ 293              	.LBB10:
+ 294              		.loc 1 55 0
+ 295 01cc 08C091E5 		ldr	ip, [r1, #8]
+ 296              	.LBE10:
+ 297              	.LBE11:
+ 298              		.loc 1 99 0
+ 299 01d0 F6FFFF1A 		bne	.L31
+ 300              		.loc 1 103 0
+ 301 01d4 1040BDE8 		ldmfd	sp!, {r4, lr}
+ 302 01d8 1EFF2FE1 		bx	lr
+ 303              	.L36:
+ 304              		.align	2
+ 305              	.L35:
+ 306 01dc 00000000 		.word	.LC0
+ 307 01e0 00C002E0 		.word	-536690688
+ 308 01e4 008002E0 		.word	-536707072
+ 309 01e8 000002E0 		.word	-536739840
+ 310              	.LFE2:
+ 312              		.section	.rodata.str1.1,"aMS",%progbits,1
+ 313              	.LC0:
+ 314 0000 73706949 		.ascii	"spiInit for SPI(0)\012\000"
+ 314      6E697420 
+ 314      666F7220 
+ 314      53504928 
+ 314      30290A00 
+ 391              	.Letext0:
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 lpc2000_spi.c
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:23     .text:0000000000000000 SPISetSpeed
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:33     .text:0000000000000000 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:49     .text:0000000000000018 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:55     .text:000000000000001c SPISend
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:64     .text:000000000000001c $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:94     .text:0000000000000060 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:101    .text:0000000000000068 SPISendN
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:110    .text:0000000000000068 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:145    .text:00000000000000b8 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:152    .text:00000000000000c0 SPIRecvN
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:161    .text:00000000000000c0 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:208    .text:0000000000000124 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:215    .text:000000000000012c SPIInit
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:222    .text:000000000000012c $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:306    .text:00000000000001dc $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccc1OjmK.s:317    .debug_frame:0000000000000000 $d
+
+UNDEFINED SYMBOLS
+rprintf

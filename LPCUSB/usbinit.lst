@@ -1,0 +1,179 @@
+   1              		.cpu arm7tdmi-s
+   2              		.fpu softvfp
+   3              		.eabi_attribute 20, 1
+   4              		.eabi_attribute 21, 1
+   5              		.eabi_attribute 23, 3
+   6              		.eabi_attribute 24, 1
+   7              		.eabi_attribute 25, 1
+   8              		.eabi_attribute 26, 1
+   9              		.eabi_attribute 30, 4
+  10              		.eabi_attribute 18, 4
+  11              		.file	"usbinit.c"
+  19              	.Ltext0:
+  20              		.align	2
+  22              	HandleUsbReset:
+  23              	.LFB0:
+  24              		.file 1 "LPCUSB/usbinit.c"
+   1:LPCUSB/usbinit.c **** /*
+   2:LPCUSB/usbinit.c **** 	LPCUSB, an USB device driver for LPC microcontrollers	
+   3:LPCUSB/usbinit.c **** 	Copyright (C) 2006 Bertrik Sikken (bertrik@sikken.nl)
+   4:LPCUSB/usbinit.c **** 
+   5:LPCUSB/usbinit.c **** 	Redistribution and use in source and binary forms, with or without
+   6:LPCUSB/usbinit.c **** 	modification, are permitted provided that the following conditions are met:
+   7:LPCUSB/usbinit.c **** 
+   8:LPCUSB/usbinit.c **** 	1. Redistributions of source code must retain the above copyright
+   9:LPCUSB/usbinit.c **** 	   notice, this list of conditions and the following disclaimer.
+  10:LPCUSB/usbinit.c **** 	2. Redistributions in binary form must reproduce the above copyright
+  11:LPCUSB/usbinit.c **** 	   notice, this list of conditions and the following disclaimer in the
+  12:LPCUSB/usbinit.c **** 	   documentation and/or other materials provided with the distribution.
+  13:LPCUSB/usbinit.c **** 	3. The name of the author may not be used to endorse or promote products
+  14:LPCUSB/usbinit.c **** 	   derived from this software without specific prior written permission.
+  15:LPCUSB/usbinit.c **** 
+  16:LPCUSB/usbinit.c **** 	THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+  17:LPCUSB/usbinit.c **** 	IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+  18:LPCUSB/usbinit.c **** 	OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+  19:LPCUSB/usbinit.c **** 	IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, 
+  20:LPCUSB/usbinit.c **** 	INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+  21:LPCUSB/usbinit.c **** 	NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  22:LPCUSB/usbinit.c **** 	DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  23:LPCUSB/usbinit.c **** 	THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  24:LPCUSB/usbinit.c **** 	(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  25:LPCUSB/usbinit.c **** 	THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  26:LPCUSB/usbinit.c **** */
+  27:LPCUSB/usbinit.c **** 
+  28:LPCUSB/usbinit.c **** 
+  29:LPCUSB/usbinit.c **** /** @file
+  30:LPCUSB/usbinit.c **** 	USB stack initialisation
+  31:LPCUSB/usbinit.c ****  */
+  32:LPCUSB/usbinit.c **** 
+  33:LPCUSB/usbinit.c **** #include "type.h"
+  34:LPCUSB/usbinit.c **** #include "usbdebug.h"
+  35:LPCUSB/usbinit.c **** #include "usbapi.h"
+  36:LPCUSB/usbinit.c **** 
+  37:LPCUSB/usbinit.c **** 
+  38:LPCUSB/usbinit.c **** /** data storage area for standard requests */
+  39:LPCUSB/usbinit.c **** static U8	abStdReqData[8];
+  40:LPCUSB/usbinit.c **** 
+  41:LPCUSB/usbinit.c **** 
+  42:LPCUSB/usbinit.c **** /**
+  43:LPCUSB/usbinit.c **** 	USB reset handler
+  44:LPCUSB/usbinit.c **** 	
+  45:LPCUSB/usbinit.c **** 	@param [in] bDevStatus	Device status
+  46:LPCUSB/usbinit.c ****  */
+  47:LPCUSB/usbinit.c **** static void HandleUsbReset(U8 bDevStatus)
+  48:LPCUSB/usbinit.c **** {
+  25              		.loc 1 48 0
+  26              		@ Function supports interworking.
+  27              		@ args = 0, pretend = 0, frame = 0
+  28              		@ frame_needed = 0, uses_anonymous_args = 0
+  29              		@ link register save eliminated.
+  30              	.LVL0:
+  49:LPCUSB/usbinit.c **** 	if (bDevStatus & DEV_STATUS_RESET) {
+  50:LPCUSB/usbinit.c **** 		DBG("\n!");
+  51:LPCUSB/usbinit.c **** 	}
+  52:LPCUSB/usbinit.c **** }
+  31              		.loc 1 52 0
+  32 0000 1EFF2FE1 		bx	lr
+  33              	.LFE0:
+  35              		.align	2
+  36              		.global	USBInit
+  38              	USBInit:
+  39              	.LFB1:
+  53:LPCUSB/usbinit.c **** 
+  54:LPCUSB/usbinit.c **** 
+  55:LPCUSB/usbinit.c **** /**
+  56:LPCUSB/usbinit.c **** 	Initialises the USB hardware and sets up the USB stack by
+  57:LPCUSB/usbinit.c **** 	installing default callbacks.
+  58:LPCUSB/usbinit.c **** 	
+  59:LPCUSB/usbinit.c **** 	@return TRUE if initialisation was successful
+  60:LPCUSB/usbinit.c ****  */
+  61:LPCUSB/usbinit.c **** BOOL USBInit(void)
+  62:LPCUSB/usbinit.c **** {
+  40              		.loc 1 62 0
+  41              		@ Function supports interworking.
+  42              		@ args = 0, pretend = 0, frame = 0
+  43              		@ frame_needed = 0, uses_anonymous_args = 0
+  44 0004 10402DE9 		stmfd	sp!, {r4, lr}
+  45              	.LCFI0:
+  63:LPCUSB/usbinit.c **** 	// init hardware
+  64:LPCUSB/usbinit.c **** 	USBHwInit();
+  65:LPCUSB/usbinit.c **** 	
+  66:LPCUSB/usbinit.c **** 	// register bus reset handler
+  67:LPCUSB/usbinit.c **** 	USBHwRegisterDevIntHandler(HandleUsbReset);
+  68:LPCUSB/usbinit.c **** 	
+  69:LPCUSB/usbinit.c **** 	// register control transfer handler on EP0
+  70:LPCUSB/usbinit.c **** 	USBHwRegisterEPIntHandler(0x00, USBHandleControlTransfer);
+  46              		.loc 1 70 0
+  47 0008 54409FE5 		ldr	r4, .L5
+  48              		.loc 1 64 0
+  49 000c FEFFFFEB 		bl	USBHwInit
+  50              		.loc 1 67 0
+  51 0010 50009FE5 		ldr	r0, .L5+4
+  52 0014 FEFFFFEB 		bl	USBHwRegisterDevIntHandler
+  53              		.loc 1 70 0
+  54 0018 0410A0E1 		mov	r1, r4
+  55 001c 0000A0E3 		mov	r0, #0
+  56 0020 FEFFFFEB 		bl	USBHwRegisterEPIntHandler
+  71:LPCUSB/usbinit.c **** 	USBHwRegisterEPIntHandler(0x80, USBHandleControlTransfer);
+  57              		.loc 1 71 0
+  58 0024 0410A0E1 		mov	r1, r4
+  59 0028 8000A0E3 		mov	r0, #128
+  60 002c FEFFFFEB 		bl	USBHwRegisterEPIntHandler
+  72:LPCUSB/usbinit.c **** 	
+  73:LPCUSB/usbinit.c **** 	// setup control endpoints
+  74:LPCUSB/usbinit.c **** 	USBHwEPConfig(0x00, MAX_PACKET_SIZE0);
+  61              		.loc 1 74 0
+  62 0030 0000A0E3 		mov	r0, #0
+  63 0034 4010A0E3 		mov	r1, #64
+  64 0038 FEFFFFEB 		bl	USBHwEPConfig
+  75:LPCUSB/usbinit.c **** 	USBHwEPConfig(0x80, MAX_PACKET_SIZE0);
+  65              		.loc 1 75 0
+  66 003c 8000A0E3 		mov	r0, #128
+  67 0040 4010A0E3 		mov	r1, #64
+  68 0044 FEFFFFEB 		bl	USBHwEPConfig
+  76:LPCUSB/usbinit.c **** 	
+  77:LPCUSB/usbinit.c **** 	// register standard request handler
+  78:LPCUSB/usbinit.c **** 	USBRegisterRequestHandler(REQTYPE_TYPE_STANDARD, USBHandleStandardRequest, abStdReqData);
+  69              		.loc 1 78 0
+  70 0048 0000A0E3 		mov	r0, #0
+  71 004c 18109FE5 		ldr	r1, .L5+8
+  72 0050 18209FE5 		ldr	r2, .L5+12
+  73 0054 FEFFFFEB 		bl	USBRegisterRequestHandler
+  79:LPCUSB/usbinit.c **** 
+  80:LPCUSB/usbinit.c **** 	return TRUE;
+  81:LPCUSB/usbinit.c **** }
+  74              		.loc 1 81 0
+  75 0058 0100A0E3 		mov	r0, #1
+  76 005c 1040BDE8 		ldmfd	sp!, {r4, lr}
+  77 0060 1EFF2FE1 		bx	lr
+  78              	.L6:
+  79              		.align	2
+  80              	.L5:
+  81 0064 00000000 		.word	USBHandleControlTransfer
+  82 0068 00000000 		.word	HandleUsbReset
+  83 006c 00000000 		.word	USBHandleStandardRequest
+  84 0070 00000000 		.word	.LANCHOR0
+  85              	.LFE1:
+  87              		.bss
+  88              		.align	2
+  89              		.set	.LANCHOR0,. + 0
+  92              	abStdReqData:
+  93 0000 00000000 		.space	8
+  93      00000000 
+ 136              	.Letext0:
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 usbinit.c
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//cczt6Nd9.s:22     .text:0000000000000000 HandleUsbReset
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//cczt6Nd9.s:32     .text:0000000000000000 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//cczt6Nd9.s:38     .text:0000000000000004 USBInit
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//cczt6Nd9.s:81     .text:0000000000000064 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//cczt6Nd9.s:92     .bss:0000000000000000 abStdReqData
+
+UNDEFINED SYMBOLS
+USBHwInit
+USBHwRegisterDevIntHandler
+USBHwRegisterEPIntHandler
+USBHwEPConfig
+USBRegisterRequestHandler
+USBHandleControlTransfer
+USBHandleStandardRequest

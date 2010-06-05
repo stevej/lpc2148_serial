@@ -1,0 +1,2880 @@
+   1              		.cpu arm7tdmi-s
+   2              		.fpu softvfp
+   3              		.eabi_attribute 20, 1
+   4              		.eabi_attribute 21, 1
+   5              		.eabi_attribute 23, 3
+   6              		.eabi_attribute 24, 1
+   7              		.eabi_attribute 25, 1
+   8              		.eabi_attribute 26, 1
+   9              		.eabi_attribute 30, 4
+  10              		.eabi_attribute 18, 4
+  11              		.file	"sd_raw.c"
+  19              	.Ltext0:
+  20              		.align	2
+  21              		.global	sd_raw_available
+  23              	sd_raw_available:
+  24              	.LFB1:
+  25              		.file 1 "SYSTEM/sd_raw.c"
+   1:SYSTEM/sd_raw.c **** 
+   2:SYSTEM/sd_raw.c **** /* This program is free software; you can redistribute it and/or modify
+   3:SYSTEM/sd_raw.c ****  * it under the terms of the GNU General Public License version 2 as
+   4:SYSTEM/sd_raw.c ****  * published by the Free Software Foundation.
+   5:SYSTEM/sd_raw.c ****  */
+   6:SYSTEM/sd_raw.c **** 
+   7:SYSTEM/sd_raw.c **** #include <string.h>
+   8:SYSTEM/sd_raw.c **** #include "sd_raw.h"
+   9:SYSTEM/sd_raw.c **** #include "LPC214x.h"
+  10:SYSTEM/sd_raw.c **** #include <stdio.h>
+  11:SYSTEM/sd_raw.c **** #include "rprintf.h"
+  12:SYSTEM/sd_raw.c **** 
+  13:SYSTEM/sd_raw.c **** /**
+  14:SYSTEM/sd_raw.c ****  * \addtogroup sd_raw MMC/SD card raw access
+  15:SYSTEM/sd_raw.c ****  *
+  16:SYSTEM/sd_raw.c ****  * This module implements read and write access to MMC and
+  17:SYSTEM/sd_raw.c ****  * SD cards. It serves as a low-level driver for the higher
+  18:SYSTEM/sd_raw.c ****  * level modules such as partition and file system access.
+  19:SYSTEM/sd_raw.c ****  *
+  20:SYSTEM/sd_raw.c ****  * @{
+  21:SYSTEM/sd_raw.c ****  */
+  22:SYSTEM/sd_raw.c **** /**
+  23:SYSTEM/sd_raw.c ****  * \file
+  24:SYSTEM/sd_raw.c ****  * MMC/SD raw access implementation.
+  25:SYSTEM/sd_raw.c ****  *
+  26:SYSTEM/sd_raw.c ****  * \author Roland Riegel
+  27:SYSTEM/sd_raw.c ****  */
+  28:SYSTEM/sd_raw.c **** 
+  29:SYSTEM/sd_raw.c **** /**
+  30:SYSTEM/sd_raw.c ****  * \addtogroup sd_raw_config MMC/SD configuration
+  31:SYSTEM/sd_raw.c ****  * Preprocessor defines to configure the MMC/SD support.
+  32:SYSTEM/sd_raw.c ****  */
+  33:SYSTEM/sd_raw.c **** 
+  34:SYSTEM/sd_raw.c **** /**
+  35:SYSTEM/sd_raw.c ****  * @}
+  36:SYSTEM/sd_raw.c ****  */
+  37:SYSTEM/sd_raw.c **** 
+  38:SYSTEM/sd_raw.c **** /* commands available in SPI mode */
+  39:SYSTEM/sd_raw.c **** 
+  40:SYSTEM/sd_raw.c **** /* CMD0: response R1 */
+  41:SYSTEM/sd_raw.c **** #define CMD_GO_IDLE_STATE 0x00
+  42:SYSTEM/sd_raw.c **** /* CMD1: response R1 */
+  43:SYSTEM/sd_raw.c **** #define CMD_SEND_OP_COND 0x01
+  44:SYSTEM/sd_raw.c **** /* CMD9: response R1 */
+  45:SYSTEM/sd_raw.c **** #define CMD_SEND_CSD 0x09
+  46:SYSTEM/sd_raw.c **** /* CMD10: response R1 */
+  47:SYSTEM/sd_raw.c **** #define CMD_SEND_CID 0x0a
+  48:SYSTEM/sd_raw.c **** /* CMD12: response R1 */
+  49:SYSTEM/sd_raw.c **** #define CMD_STOP_TRANSMISSION 0x0c
+  50:SYSTEM/sd_raw.c **** /* CMD13: response R2 */
+  51:SYSTEM/sd_raw.c **** #define CMD_SEND_STATUS 0x0d
+  52:SYSTEM/sd_raw.c **** /* CMD16: arg0[31:0]: block length, response R1 */
+  53:SYSTEM/sd_raw.c **** #define CMD_SET_BLOCKLEN 0x10
+  54:SYSTEM/sd_raw.c **** /* CMD17: arg0[31:0]: data address, response R1 */
+  55:SYSTEM/sd_raw.c **** #define CMD_READ_SINGLE_BLOCK 0x11
+  56:SYSTEM/sd_raw.c **** /* CMD18: arg0[31:0]: data address, response R1 */
+  57:SYSTEM/sd_raw.c **** #define CMD_READ_MULTIPLE_BLOCK 0x12
+  58:SYSTEM/sd_raw.c **** /* CMD24: arg0[31:0]: data address, response R1 */
+  59:SYSTEM/sd_raw.c **** #define CMD_WRITE_SINGLE_BLOCK 0x18
+  60:SYSTEM/sd_raw.c **** /* CMD25: arg0[31:0]: data address, response R1 */
+  61:SYSTEM/sd_raw.c **** #define CMD_WRITE_MULTIPLE_BLOCK 0x19
+  62:SYSTEM/sd_raw.c **** /* CMD27: response R1 */
+  63:SYSTEM/sd_raw.c **** #define CMD_PROGRAM_CSD 0x1b
+  64:SYSTEM/sd_raw.c **** /* CMD28: arg0[31:0]: data address, response R1b */
+  65:SYSTEM/sd_raw.c **** #define CMD_SET_WRITE_PROT 0x1c
+  66:SYSTEM/sd_raw.c **** /* CMD29: arg0[31:0]: data address, response R1b */
+  67:SYSTEM/sd_raw.c **** #define CMD_CLR_WRITE_PROT 0x1d
+  68:SYSTEM/sd_raw.c **** /* CMD30: arg0[31:0]: write protect data address, response R1 */
+  69:SYSTEM/sd_raw.c **** #define CMD_SEND_WRITE_PROT 0x1e
+  70:SYSTEM/sd_raw.c **** /* CMD32: arg0[31:0]: data address, response R1 */
+  71:SYSTEM/sd_raw.c **** #define CMD_TAG_SECTOR_START 0x20
+  72:SYSTEM/sd_raw.c **** /* CMD33: arg0[31:0]: data address, response R1 */
+  73:SYSTEM/sd_raw.c **** #define CMD_TAG_SECTOR_END 0x21
+  74:SYSTEM/sd_raw.c **** /* CMD34: arg0[31:0]: data address, response R1 */
+  75:SYSTEM/sd_raw.c **** #define CMD_UNTAG_SECTOR 0x22
+  76:SYSTEM/sd_raw.c **** /* CMD35: arg0[31:0]: data address, response R1 */
+  77:SYSTEM/sd_raw.c **** #define CMD_TAG_ERASE_GROUP_START 0x23
+  78:SYSTEM/sd_raw.c **** /* CMD36: arg0[31:0]: data address, response R1 */
+  79:SYSTEM/sd_raw.c **** #define CMD_TAG_ERASE_GROUP_END 0x24
+  80:SYSTEM/sd_raw.c **** /* CMD37: arg0[31:0]: data address, response R1 */
+  81:SYSTEM/sd_raw.c **** #define CMD_UNTAG_ERASE_GROUP 0x25
+  82:SYSTEM/sd_raw.c **** /* CMD38: arg0[31:0]: stuff bits, response R1b */
+  83:SYSTEM/sd_raw.c **** #define CMD_ERASE 0x26
+  84:SYSTEM/sd_raw.c **** /* CMD42: arg0[31:0]: stuff bits, response R1b */
+  85:SYSTEM/sd_raw.c **** #define CMD_LOCK_UNLOCK 0x2a
+  86:SYSTEM/sd_raw.c **** /* CMD58: response R3 */
+  87:SYSTEM/sd_raw.c **** #define CMD_READ_OCR 0x3a
+  88:SYSTEM/sd_raw.c **** /* CMD59: arg0[31:1]: stuff bits, arg0[0:0]: crc option, response R1 */
+  89:SYSTEM/sd_raw.c **** #define CMD_CRC_ON_OFF 0x3b
+  90:SYSTEM/sd_raw.c **** 
+  91:SYSTEM/sd_raw.c **** /* command responses */
+  92:SYSTEM/sd_raw.c **** /* R1: size 1 byte */
+  93:SYSTEM/sd_raw.c **** #define R1_IDLE_STATE 0
+  94:SYSTEM/sd_raw.c **** #define R1_ERASE_RESET 1
+  95:SYSTEM/sd_raw.c **** #define R1_ILL_COMMAND 2
+  96:SYSTEM/sd_raw.c **** #define R1_COM_CRC_ERR 3
+  97:SYSTEM/sd_raw.c **** #define R1_ERASE_SEQ_ERR 4
+  98:SYSTEM/sd_raw.c **** #define R1_ADDR_ERR 5
+  99:SYSTEM/sd_raw.c **** #define R1_PARAM_ERR 6
+ 100:SYSTEM/sd_raw.c **** /* R1b: equals R1, additional busy bytes */
+ 101:SYSTEM/sd_raw.c **** /* R2: size 2 bytes */
+ 102:SYSTEM/sd_raw.c **** #define R2_CARD_LOCKED 0
+ 103:SYSTEM/sd_raw.c **** #define R2_WP_ERASE_SKIP 1
+ 104:SYSTEM/sd_raw.c **** #define R2_ERR 2
+ 105:SYSTEM/sd_raw.c **** #define R2_CARD_ERR 3
+ 106:SYSTEM/sd_raw.c **** #define R2_CARD_ECC_FAIL 4
+ 107:SYSTEM/sd_raw.c **** #define R2_WP_VIOLATION 5
+ 108:SYSTEM/sd_raw.c **** #define R2_INVAL_ERASE 6
+ 109:SYSTEM/sd_raw.c **** #define R2_OUT_OF_RANGE 7
+ 110:SYSTEM/sd_raw.c **** #define R2_CSD_OVERWRITE 7
+ 111:SYSTEM/sd_raw.c **** #define R2_IDLE_STATE (R1_IDLE_STATE + 8)
+ 112:SYSTEM/sd_raw.c **** #define R2_ERASE_RESET (R1_ERASE_RESET + 8)
+ 113:SYSTEM/sd_raw.c **** #define R2_ILL_COMMAND (R1_ILL_COMMAND + 8)
+ 114:SYSTEM/sd_raw.c **** #define R2_COM_CRC_ERR (R1_COM_CRC_ERR + 8)
+ 115:SYSTEM/sd_raw.c **** #define R2_ERASE_SEQ_ERR (R1_ERASE_SEQ_ERR + 8)
+ 116:SYSTEM/sd_raw.c **** #define R2_ADDR_ERR (R1_ADDR_ERR + 8)
+ 117:SYSTEM/sd_raw.c **** #define R2_PARAM_ERR (R1_PARAM_ERR + 8)
+ 118:SYSTEM/sd_raw.c **** /* R3: size 5 bytes */
+ 119:SYSTEM/sd_raw.c **** #define R3_OCR_MASK (0xffffffffUL)
+ 120:SYSTEM/sd_raw.c **** #define R3_IDLE_STATE (R1_IDLE_STATE + 32)
+ 121:SYSTEM/sd_raw.c **** #define R3_ERASE_RESET (R1_ERASE_RESET + 32)
+ 122:SYSTEM/sd_raw.c **** #define R3_ILL_COMMAND (R1_ILL_COMMAND + 32)
+ 123:SYSTEM/sd_raw.c **** #define R3_COM_CRC_ERR (R1_COM_CRC_ERR + 32)
+ 124:SYSTEM/sd_raw.c **** #define R3_ERASE_SEQ_ERR (R1_ERASE_SEQ_ERR + 32)
+ 125:SYSTEM/sd_raw.c **** #define R3_ADDR_ERR (R1_ADDR_ERR + 32)
+ 126:SYSTEM/sd_raw.c **** #define R3_PARAM_ERR (R1_PARAM_ERR + 32)
+ 127:SYSTEM/sd_raw.c **** /* Data Response: size 1 byte */
+ 128:SYSTEM/sd_raw.c **** #define DR_STATUS_MASK 0x0e
+ 129:SYSTEM/sd_raw.c **** #define DR_STATUS_ACCEPTED 0x05
+ 130:SYSTEM/sd_raw.c **** #define DR_STATUS_CRC_ERR 0x0a
+ 131:SYSTEM/sd_raw.c **** #define DR_STATUS_WRITE_ERR 0x0c
+ 132:SYSTEM/sd_raw.c **** 
+ 133:SYSTEM/sd_raw.c **** #if !SD_RAW_SAVE_RAM
+ 134:SYSTEM/sd_raw.c ****     
+ 135:SYSTEM/sd_raw.c ****     /* static data buffer for acceleration */
+ 136:SYSTEM/sd_raw.c ****     static unsigned char raw_block[512];
+ 137:SYSTEM/sd_raw.c ****     /* offset where the data within raw_block lies on the card */
+ 138:SYSTEM/sd_raw.c ****     static unsigned int raw_block_address;
+ 139:SYSTEM/sd_raw.c ****     #if SD_RAW_WRITE_BUFFERING
+ 140:SYSTEM/sd_raw.c ****     /* flag to remember if raw_block was written to the card */
+ 141:SYSTEM/sd_raw.c ****     static unsigned char raw_block_written;
+ 142:SYSTEM/sd_raw.c **** #endif
+ 143:SYSTEM/sd_raw.c **** 
+ 144:SYSTEM/sd_raw.c **** #endif
+ 145:SYSTEM/sd_raw.c **** 
+ 146:SYSTEM/sd_raw.c **** /* private helper functions */
+ 147:SYSTEM/sd_raw.c **** static void sd_raw_send_byte(unsigned char b);
+ 148:SYSTEM/sd_raw.c **** static unsigned char sd_raw_rec_byte(void);
+ 149:SYSTEM/sd_raw.c **** static unsigned char sd_raw_send_command_r1(unsigned char command, unsigned int arg);
+ 150:SYSTEM/sd_raw.c **** //static unsigned short sd_raw_send_command_r2(unsigned char command, unsigned int arg);
+ 151:SYSTEM/sd_raw.c **** 
+ 152:SYSTEM/sd_raw.c **** /**
+ 153:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 154:SYSTEM/sd_raw.c ****  * Initializes memory card communication.
+ 155:SYSTEM/sd_raw.c ****  *
+ 156:SYSTEM/sd_raw.c ****  * \returns 0 on failure, 1 on success.
+ 157:SYSTEM/sd_raw.c ****  */
+ 158:SYSTEM/sd_raw.c **** unsigned char sd_raw_init()
+ 159:SYSTEM/sd_raw.c **** {
+ 160:SYSTEM/sd_raw.c ****     /* enable inputs for reading card status */
+ 161:SYSTEM/sd_raw.c ****     /*    configure_pin_available();*/
+ 162:SYSTEM/sd_raw.c ****     /*    configure_pin_locked();*/
+ 163:SYSTEM/sd_raw.c **** 
+ 164:SYSTEM/sd_raw.c ****     /* enable outputs for MOSI, SCK, SS, input for MISO */
+ 165:SYSTEM/sd_raw.c ****     configure_pin_ss();
+ 166:SYSTEM/sd_raw.c ****     configure_pin_mosi();
+ 167:SYSTEM/sd_raw.c ****     configure_pin_miso();
+ 168:SYSTEM/sd_raw.c ****     configure_pin_sck();
+ 169:SYSTEM/sd_raw.c **** 
+ 170:SYSTEM/sd_raw.c ****     unselect_card();
+ 171:SYSTEM/sd_raw.c **** 
+ 172:SYSTEM/sd_raw.c ****     /* initialize SPI with lowest frequency; max. 400kHz during identification mode of card */
+ 173:SYSTEM/sd_raw.c ****     S0SPCCR = 150;  /* Set frequency to 400kHz */
+ 174:SYSTEM/sd_raw.c ****     S0SPCR = 0x38;
+ 175:SYSTEM/sd_raw.c **** 
+ 176:SYSTEM/sd_raw.c **** 
+ 177:SYSTEM/sd_raw.c ****     /* initialization procedure */
+ 178:SYSTEM/sd_raw.c **** 
+ 179:SYSTEM/sd_raw.c ****     if(!sd_raw_available())
+ 180:SYSTEM/sd_raw.c ****     {
+ 181:SYSTEM/sd_raw.c ****         rprintf("SD RAW NOT AVAILABLE\n\r");
+ 182:SYSTEM/sd_raw.c ****         return 0;
+ 183:SYSTEM/sd_raw.c ****     }
+ 184:SYSTEM/sd_raw.c ****     configure_pin_ss();
+ 185:SYSTEM/sd_raw.c ****     unselect_card();
+ 186:SYSTEM/sd_raw.c **** 
+ 187:SYSTEM/sd_raw.c ****     unsigned short i;
+ 188:SYSTEM/sd_raw.c ****     /* card needs 74 cycles minimum to start up */
+ 189:SYSTEM/sd_raw.c ****     for(i = 0; i < 10; ++i)
+ 190:SYSTEM/sd_raw.c ****     {
+ 191:SYSTEM/sd_raw.c ****         /* wait 8 clock cycles */
+ 192:SYSTEM/sd_raw.c ****         sd_raw_rec_byte();
+ 193:SYSTEM/sd_raw.c ****     }
+ 194:SYSTEM/sd_raw.c **** 
+ 195:SYSTEM/sd_raw.c ****     /* address card */
+ 196:SYSTEM/sd_raw.c ****     select_card();
+ 197:SYSTEM/sd_raw.c **** 
+ 198:SYSTEM/sd_raw.c ****     /* reset card */
+ 199:SYSTEM/sd_raw.c ****     unsigned char response;
+ 200:SYSTEM/sd_raw.c ****     for(i = 0; ; ++i)
+ 201:SYSTEM/sd_raw.c ****     {
+ 202:SYSTEM/sd_raw.c ****         response = sd_raw_send_command_r1(CMD_GO_IDLE_STATE, 0);
+ 203:SYSTEM/sd_raw.c ****         if(response == (1 << R1_IDLE_STATE))
+ 204:SYSTEM/sd_raw.c ****             break;
+ 205:SYSTEM/sd_raw.c **** 
+ 206:SYSTEM/sd_raw.c ****         if(i == 0x1ff)
+ 207:SYSTEM/sd_raw.c ****         {
+ 208:SYSTEM/sd_raw.c ****             rprintf("\n\rresponse: %d\n\r",response);
+ 209:SYSTEM/sd_raw.c ****             unselect_card();
+ 210:SYSTEM/sd_raw.c ****             return 0;
+ 211:SYSTEM/sd_raw.c ****         }
+ 212:SYSTEM/sd_raw.c ****     }
+ 213:SYSTEM/sd_raw.c **** 
+ 214:SYSTEM/sd_raw.c ****     /* wait for card to get ready */
+ 215:SYSTEM/sd_raw.c ****     for(i = 0; ; ++i)
+ 216:SYSTEM/sd_raw.c ****     {
+ 217:SYSTEM/sd_raw.c ****         response = sd_raw_send_command_r1(CMD_SEND_OP_COND, 0);
+ 218:SYSTEM/sd_raw.c ****         if(!(response & (1 << R1_IDLE_STATE)))
+ 219:SYSTEM/sd_raw.c ****             break;
+ 220:SYSTEM/sd_raw.c **** 
+ 221:SYSTEM/sd_raw.c ****         if(i == 0x7fff)
+ 222:SYSTEM/sd_raw.c ****         {
+ 223:SYSTEM/sd_raw.c ****             unselect_card();
+ 224:SYSTEM/sd_raw.c ****             rprintf("i = 0x7fff\n\r");
+ 225:SYSTEM/sd_raw.c ****             return 0;
+ 226:SYSTEM/sd_raw.c ****         }
+ 227:SYSTEM/sd_raw.c ****     }
+ 228:SYSTEM/sd_raw.c **** 
+ 229:SYSTEM/sd_raw.c ****     /* set block size to 512 bytes */
+ 230:SYSTEM/sd_raw.c ****     if(sd_raw_send_command_r1(CMD_SET_BLOCKLEN, 512))
+ 231:SYSTEM/sd_raw.c ****     {
+ 232:SYSTEM/sd_raw.c ****         unselect_card();
+ 233:SYSTEM/sd_raw.c ****         rprintf("BLOCK SIZE SET ERR \n\r");
+ 234:SYSTEM/sd_raw.c ****         return 0;
+ 235:SYSTEM/sd_raw.c ****     }
+ 236:SYSTEM/sd_raw.c **** 
+ 237:SYSTEM/sd_raw.c ****     /* deaddress card */
+ 238:SYSTEM/sd_raw.c ****     unselect_card();
+ 239:SYSTEM/sd_raw.c **** 
+ 240:SYSTEM/sd_raw.c ****     /* switch to highest SPI frequency possible */
+ 241:SYSTEM/sd_raw.c ****     S0SPCCR = 60; /* ~1MHz-- potentially can be faster */
+ 242:SYSTEM/sd_raw.c **** 
+ 243:SYSTEM/sd_raw.c ****     #if !SD_RAW_SAVE_RAM
+ 244:SYSTEM/sd_raw.c ****         /* the first block is likely to be accessed first, so precache it here */
+ 245:SYSTEM/sd_raw.c ****         raw_block_address = 0xffffffff;
+ 246:SYSTEM/sd_raw.c ****         #if SD_RAW_WRITE_BUFFERING
+ 247:SYSTEM/sd_raw.c ****         raw_block_written = 1;
+ 248:SYSTEM/sd_raw.c ****     #endif
+ 249:SYSTEM/sd_raw.c ****     if(!sd_raw_read(0, raw_block, sizeof(raw_block)))
+ 250:SYSTEM/sd_raw.c ****     {
+ 251:SYSTEM/sd_raw.c ****         rprintf("sd_raw_read borks\n\r");
+ 252:SYSTEM/sd_raw.c ****         return 0;
+ 253:SYSTEM/sd_raw.c ****     }
+ 254:SYSTEM/sd_raw.c ****     #endif
+ 255:SYSTEM/sd_raw.c **** 
+ 256:SYSTEM/sd_raw.c ****     return 1;
+ 257:SYSTEM/sd_raw.c **** }
+ 258:SYSTEM/sd_raw.c **** 
+ 259:SYSTEM/sd_raw.c **** /**
+ 260:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 261:SYSTEM/sd_raw.c ****  * Checks wether a memory card is located in the slot.
+ 262:SYSTEM/sd_raw.c ****  *
+ 263:SYSTEM/sd_raw.c ****  * \returns 1 if the card is available, 0 if it is not.
+ 264:SYSTEM/sd_raw.c ****  */
+ 265:SYSTEM/sd_raw.c **** unsigned char sd_raw_available()
+ 266:SYSTEM/sd_raw.c **** {
+  26              		.loc 1 266 0
+  27              		@ Function supports interworking.
+  28              		@ args = 0, pretend = 0, frame = 0
+  29              		@ frame_needed = 0, uses_anonymous_args = 0
+  30              		@ link register save eliminated.
+ 267:SYSTEM/sd_raw.c ****     unsigned int i;
+ 268:SYSTEM/sd_raw.c ****     configure_pin_available();
+  31              		.loc 1 268 0
+  32 0000 28309FE5 		ldr	r3, .L3
+  33 0004 082093E5 		ldr	r2, [r3, #8]
+  34 0008 8020C2E3 		bic	r2, r2, #128
+  35 000c 082083E5 		str	r2, [r3, #8]
+ 269:SYSTEM/sd_raw.c ****     for(i=0;i<100000;i++);
+ 270:SYSTEM/sd_raw.c ****     i = get_pin_available();
+  36              		.loc 1 270 0
+  37 0010 000093E5 		ldr	r0, [r3, #0]
+ 271:SYSTEM/sd_raw.c ****     configure_pin_ss();
+  38              		.loc 1 271 0
+  39 0014 082093E5 		ldr	r2, [r3, #8]
+  40 0018 800000E2 		and	r0, r0, #128
+  41 001c 802082E3 		orr	r2, r2, #128
+  42 0020 082083E5 		str	r2, [r3, #8]
+ 272:SYSTEM/sd_raw.c ****     return i == 0x00;
+ 273:SYSTEM/sd_raw.c **** }
+  43              		.loc 1 273 0
+  44 0024 000050E2 		subs	r0, r0, #0
+  45 0028 0100A013 		movne	r0, #1
+  46 002c 1EFF2FE1 		bx	lr
+  47              	.L4:
+  48              		.align	2
+  49              	.L3:
+  50 0030 008002E0 		.word	-536707072
+  51              	.LFE1:
+  53              		.align	2
+  54              		.global	sd_raw_locked
+  56              	sd_raw_locked:
+  57              	.LFB2:
+ 274:SYSTEM/sd_raw.c **** 
+ 275:SYSTEM/sd_raw.c **** /**
+ 276:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 277:SYSTEM/sd_raw.c ****  * Checks wether the memory card is locked for write access.
+ 278:SYSTEM/sd_raw.c ****  *
+ 279:SYSTEM/sd_raw.c ****  * \returns 1 if the card is locked, 0 if it is not.
+ 280:SYSTEM/sd_raw.c ****  */
+ 281:SYSTEM/sd_raw.c **** unsigned char sd_raw_locked()
+ 282:SYSTEM/sd_raw.c **** {
+  58              		.loc 1 282 0
+  59              		@ Function supports interworking.
+  60              		@ args = 0, pretend = 0, frame = 0
+  61              		@ frame_needed = 0, uses_anonymous_args = 0
+  62              		@ link register save eliminated.
+ 283:SYSTEM/sd_raw.c ****     return get_pin_locked() == 0x00;
+ 284:SYSTEM/sd_raw.c **** }
+  63              		.loc 1 284 0
+  64 0034 0100A0E3 		mov	r0, #1
+  65 0038 1EFF2FE1 		bx	lr
+  66              	.LFE2:
+  68              		.align	2
+  70              	sd_raw_send_command_r1:
+  71              	.LFB5:
+ 285:SYSTEM/sd_raw.c **** 
+ 286:SYSTEM/sd_raw.c **** /**
+ 287:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 288:SYSTEM/sd_raw.c ****  * Sends a raw byte to the memory card.
+ 289:SYSTEM/sd_raw.c ****  *
+ 290:SYSTEM/sd_raw.c ****  * \param[in] b The byte to sent.
+ 291:SYSTEM/sd_raw.c ****  * \see sd_raw_rec_byte
+ 292:SYSTEM/sd_raw.c ****  */
+ 293:SYSTEM/sd_raw.c **** void sd_raw_send_byte(unsigned char b)
+ 294:SYSTEM/sd_raw.c **** {
+ 295:SYSTEM/sd_raw.c ****     S0SPDR = b;
+ 296:SYSTEM/sd_raw.c ****     /* wait for byte to be shifted out */
+ 297:SYSTEM/sd_raw.c ****     while(!(S0SPSR & 0x80));
+ 298:SYSTEM/sd_raw.c **** }
+ 299:SYSTEM/sd_raw.c **** 
+ 300:SYSTEM/sd_raw.c **** /**
+ 301:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 302:SYSTEM/sd_raw.c ****  * Receives a raw byte from the memory card.
+ 303:SYSTEM/sd_raw.c ****  *
+ 304:SYSTEM/sd_raw.c ****  * \returns The byte which should be read.
+ 305:SYSTEM/sd_raw.c ****  * \see sd_raw_send_byte
+ 306:SYSTEM/sd_raw.c ****  */
+ 307:SYSTEM/sd_raw.c **** unsigned char sd_raw_rec_byte(void)
+ 308:SYSTEM/sd_raw.c **** {
+ 309:SYSTEM/sd_raw.c ****     /* send dummy data for receiving some */
+ 310:SYSTEM/sd_raw.c ****     S0SPDR = 0xff;
+ 311:SYSTEM/sd_raw.c ****     while(!(S0SPSR & 0x80));
+ 312:SYSTEM/sd_raw.c **** 
+ 313:SYSTEM/sd_raw.c ****     return S0SPDR;
+ 314:SYSTEM/sd_raw.c **** }
+ 315:SYSTEM/sd_raw.c **** 
+ 316:SYSTEM/sd_raw.c **** /**
+ 317:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 318:SYSTEM/sd_raw.c ****  * Send a command to the memory card which responses with a R1 response.
+ 319:SYSTEM/sd_raw.c ****  *
+ 320:SYSTEM/sd_raw.c ****  * \param[in] command The command to send.
+ 321:SYSTEM/sd_raw.c ****  * \param[in] arg The argument for command.
+ 322:SYSTEM/sd_raw.c ****  * \returns The command answer.
+ 323:SYSTEM/sd_raw.c ****  */
+ 324:SYSTEM/sd_raw.c **** unsigned char sd_raw_send_command_r1(unsigned char command, unsigned int arg)
+ 325:SYSTEM/sd_raw.c **** {
+  72              		.loc 1 325 0
+  73              		@ Function supports interworking.
+  74              		@ args = 0, pretend = 0, frame = 0
+  75              		@ frame_needed = 0, uses_anonymous_args = 0
+  76              		@ link register save eliminated.
+  77              	.LVL0:
+  78              	.LBB58:
+  79              	.LBB59:
+  80              		.loc 1 310 0
+  81 003c 04319FE5 		ldr	r3, .L31
+  82 0040 FF20A0E3 		mov	r2, #255
+  83 0044 082083E5 		str	r2, [r3, #8]
+  84              	.L8:
+  85              		.loc 1 311 0
+  86 0048 042093E5 		ldr	r2, [r3, #4]
+  87 004c 800012E3 		tst	r2, #128
+  88 0050 F0209FE5 		ldr	r2, .L31
+  89 0054 FBFFFF0A 		beq	.L8
+  90              	.LBE59:
+  91              	.LBE58:
+  92              	.LBB61:
+  93              	.LBB62:
+  94              		.loc 1 295 0
+  95 0058 403080E3 		orr	r3, r0, #64
+  96              	.LBE62:
+  97              	.LBE61:
+  98              	.LBB64:
+  99              	.LBB60:
+ 100              		.loc 1 313 0
+ 101 005c 08C092E5 		ldr	ip, [r2, #8]
+ 102              	.LBE60:
+ 103              	.LBE64:
+ 104              	.LBB65:
+ 105              	.LBB63:
+ 106              		.loc 1 295 0
+ 107 0060 083082E5 		str	r3, [r2, #8]
+ 108              	.L9:
+ 109              		.loc 1 297 0
+ 110 0064 043092E5 		ldr	r3, [r2, #4]
+ 111 0068 800013E3 		tst	r3, #128
+ 112 006c D4309FE5 		ldr	r3, .L31
+ 113 0070 FBFFFF0A 		beq	.L9
+ 114              	.LBE63:
+ 115              	.LBE65:
+ 116              	.LBB66:
+ 117              	.LBB67:
+ 118              		.loc 1 295 0
+ 119 0074 212CA0E1 		mov	r2, r1, lsr #24
+ 120 0078 082083E5 		str	r2, [r3, #8]
+ 121              		.loc 1 297 0
+ 122 007c 0320A0E1 		mov	r2, r3
+ 123              	.L10:
+ 124 0080 043092E5 		ldr	r3, [r2, #4]
+ 125 0084 800013E3 		tst	r3, #128
+ 126 0088 B8309FE5 		ldr	r3, .L31
+ 127 008c FBFFFF0A 		beq	.L10
+ 128              	.LBE67:
+ 129              	.LBE66:
+ 130              	.LBB68:
+ 131              	.LBB69:
+ 132              		.loc 1 295 0
+ 133 0090 2128A0E1 		mov	r2, r1, lsr #16
+ 134 0094 FF2002E2 		and	r2, r2, #255
+ 135 0098 082083E5 		str	r2, [r3, #8]
+ 136              		.loc 1 297 0
+ 137 009c 0320A0E1 		mov	r2, r3
+ 138              	.L11:
+ 139 00a0 043092E5 		ldr	r3, [r2, #4]
+ 140 00a4 800013E3 		tst	r3, #128
+ 141 00a8 98309FE5 		ldr	r3, .L31
+ 142 00ac FBFFFF0A 		beq	.L11
+ 143              	.LBE69:
+ 144              	.LBE68:
+ 145              	.LBB70:
+ 146              	.LBB71:
+ 147              		.loc 1 295 0
+ 148 00b0 2124A0E1 		mov	r2, r1, lsr #8
+ 149 00b4 FF2002E2 		and	r2, r2, #255
+ 150 00b8 082083E5 		str	r2, [r3, #8]
+ 151              		.loc 1 297 0
+ 152 00bc 0320A0E1 		mov	r2, r3
+ 153              	.L12:
+ 154 00c0 043092E5 		ldr	r3, [r2, #4]
+ 155 00c4 800013E3 		tst	r3, #128
+ 156 00c8 78309FE5 		ldr	r3, .L31
+ 157 00cc FBFFFF0A 		beq	.L12
+ 158              	.LBE71:
+ 159              	.LBE70:
+ 160              	.LBB72:
+ 161              	.LBB73:
+ 162              		.loc 1 295 0
+ 163 00d0 FF1001E2 		and	r1, r1, #255
+ 164              	.LVL1:
+ 165 00d4 081083E5 		str	r1, [r3, #8]
+ 166              	.L13:
+ 167              		.loc 1 297 0
+ 168 00d8 042093E5 		ldr	r2, [r3, #4]
+ 169 00dc 800012E3 		tst	r2, #128
+ 170 00e0 FCFFFF0A 		beq	.L13
+ 171              	.LBE73:
+ 172              	.LBE72:
+ 326:SYSTEM/sd_raw.c ****     unsigned char response;
+ 327:SYSTEM/sd_raw.c ****     unsigned char i;
+ 328:SYSTEM/sd_raw.c **** 
+ 329:SYSTEM/sd_raw.c ****     /* wait some clock cycles */
+ 330:SYSTEM/sd_raw.c ****     sd_raw_rec_byte();
+ 331:SYSTEM/sd_raw.c **** 
+ 332:SYSTEM/sd_raw.c ****     /* send command via SPI */
+ 333:SYSTEM/sd_raw.c ****     sd_raw_send_byte(0x40 | command);
+ 334:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 24) & 0xff);
+ 335:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 16) & 0xff);
+ 336:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 8) & 0xff);
+ 337:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 0) & 0xff);
+ 338:SYSTEM/sd_raw.c ****     sd_raw_send_byte((command == CMD_GO_IDLE_STATE) ? 0x95 : 0xff);
+ 173              		.loc 1 338 0
+ 174 00e4 000050E3 		cmp	r0, #0
+ 175              	.LBB74:
+ 176              	.LBB76:
+ 177              		.loc 1 295 0
+ 178 00e8 58309FE5 		ldr	r3, .L31
+ 179              	.LBE76:
+ 180              	.LBE74:
+ 181              		.loc 1 338 0
+ 182 00ec 9500A003 		moveq	r0, #149
+ 183              	.LVL2:
+ 184 00f0 FF00A013 		movne	r0, #255
+ 185              	.LBB78:
+ 186              	.LBB75:
+ 187              		.loc 1 295 0
+ 188 00f4 080083E5 		str	r0, [r3, #8]
+ 189              	.L16:
+ 190              		.loc 1 297 0
+ 191 00f8 042093E5 		ldr	r2, [r3, #4]
+ 192 00fc 800012E3 		tst	r2, #128
+ 193 0100 FCFFFF0A 		beq	.L16
+ 194              	.LBE75:
+ 195              	.LBE78:
+ 196              	.LBB79:
+ 197              	.LBB80:
+ 198              		.loc 1 310 0
+ 199 0104 3C309FE5 		ldr	r3, .L31
+ 200              	.LBE80:
+ 201              	.LBE79:
+ 202              	.LBB82:
+ 203              	.LBB77:
+ 204              		.loc 1 297 0
+ 205 0108 0020A0E3 		mov	r2, #0
+ 206              	.LVL3:
+ 207              	.LBE77:
+ 208              	.LBE82:
+ 209              	.LBB83:
+ 210              	.LBB81:
+ 211              		.loc 1 310 0
+ 212 010c FFC0A0E3 		mov	ip, #255
+ 213              		.loc 1 311 0
+ 214 0110 0310A0E1 		mov	r1, r3
+ 215              	.LVL4:
+ 216              	.L19:
+ 217              		.loc 1 310 0
+ 218 0114 08C083E5 		str	ip, [r3, #8]
+ 219              	.L17:
+ 220              		.loc 1 311 0
+ 221 0118 040093E5 		ldr	r0, [r3, #4]
+ 222              	.LVL5:
+ 223 011c 800010E3 		tst	r0, #128
+ 224 0120 FCFFFF0A 		beq	.L17
+ 225              		.loc 1 313 0
+ 226 0124 080091E5 		ldr	r0, [r1, #8]
+ 227 0128 FF0000E2 		and	r0, r0, #255
+ 228              	.LVL6:
+ 229              	.LBE81:
+ 230              	.LBE83:
+ 339:SYSTEM/sd_raw.c **** 
+ 340:SYSTEM/sd_raw.c ****     /* receive response */
+ 341:SYSTEM/sd_raw.c ****     for(i = 0; i < 10; ++i)
+ 342:SYSTEM/sd_raw.c ****     {
+ 343:SYSTEM/sd_raw.c ****         response = sd_raw_rec_byte();
+ 344:SYSTEM/sd_raw.c ****         if(response != 0xff)
+ 231              		.loc 1 344 0
+ 232 012c FF0050E3 		cmp	r0, #255
+ 233 0130 1EFF2F11 		bxne	lr
+ 234              		.loc 1 341 0
+ 235 0134 012082E2 		add	r2, r2, #1
+ 236              	.LVL7:
+ 237 0138 FF2002E2 		and	r2, r2, #255
+ 238              	.LVL8:
+ 239 013c 0A0052E3 		cmp	r2, #10
+ 240 0140 F3FFFF1A 		bne	.L19
+ 241              	.LVL9:
+ 345:SYSTEM/sd_raw.c ****             break;
+ 346:SYSTEM/sd_raw.c ****     }
+ 347:SYSTEM/sd_raw.c **** 
+ 348:SYSTEM/sd_raw.c ****     return response;
+ 349:SYSTEM/sd_raw.c **** }
+ 242              		.loc 1 349 0
+ 243 0144 1EFF2FE1 		bx	lr
+ 244              	.L32:
+ 245              		.align	2
+ 246              	.L31:
+ 247 0148 000002E0 		.word	-536739840
+ 248              	.LFE5:
+ 250              		.align	2
+ 251              		.global	SDoff
+ 253              	SDoff:
+ 254              	.LFB11:
+ 350:SYSTEM/sd_raw.c **** 
+ 351:SYSTEM/sd_raw.c **** /**
+ 352:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 353:SYSTEM/sd_raw.c ****  * Send a command to the memory card which responses with a R2 response.
+ 354:SYSTEM/sd_raw.c ****  *
+ 355:SYSTEM/sd_raw.c ****  * \param[in] command The command to send.
+ 356:SYSTEM/sd_raw.c ****  * \param[in] arg The argument for command.
+ 357:SYSTEM/sd_raw.c ****  * \returns The command answer.
+ 358:SYSTEM/sd_raw.c ****  */
+ 359:SYSTEM/sd_raw.c **** /*
+ 360:SYSTEM/sd_raw.c **** unsigned short sd_raw_send_command_r2(unsigned char command, unsigned int arg)
+ 361:SYSTEM/sd_raw.c **** {
+ 362:SYSTEM/sd_raw.c ****     unsigned short response;
+ 363:SYSTEM/sd_raw.c ****     unsigned char i;
+ 364:SYSTEM/sd_raw.c **** 
+ 365:SYSTEM/sd_raw.c ****     // wait some clock cycles
+ 366:SYSTEM/sd_raw.c ****     sd_raw_rec_byte();
+ 367:SYSTEM/sd_raw.c **** 
+ 368:SYSTEM/sd_raw.c ****     // send command via SPI
+ 369:SYSTEM/sd_raw.c ****     sd_raw_send_byte(0x40 | command);
+ 370:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 24) & 0xff);
+ 371:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 16) & 0xff);
+ 372:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 8) & 0xff);
+ 373:SYSTEM/sd_raw.c ****     sd_raw_send_byte((arg >> 0) & 0xff);
+ 374:SYSTEM/sd_raw.c ****     sd_raw_send_byte(command == CMD_GO_IDLE_STATE ? 0x95 : 0xff);
+ 375:SYSTEM/sd_raw.c **** 
+ 376:SYSTEM/sd_raw.c ****     // receive response
+ 377:SYSTEM/sd_raw.c ****     for(i = 0; i < 10; ++i)
+ 378:SYSTEM/sd_raw.c ****     {
+ 379:SYSTEM/sd_raw.c ****         response = sd_raw_rec_byte();
+ 380:SYSTEM/sd_raw.c ****         if(response != 0xff)
+ 381:SYSTEM/sd_raw.c ****             break;
+ 382:SYSTEM/sd_raw.c ****     }
+ 383:SYSTEM/sd_raw.c ****     response <<= 8;
+ 384:SYSTEM/sd_raw.c ****     response |= sd_raw_rec_byte();
+ 385:SYSTEM/sd_raw.c **** 
+ 386:SYSTEM/sd_raw.c ****     return response;
+ 387:SYSTEM/sd_raw.c **** }
+ 388:SYSTEM/sd_raw.c **** */
+ 389:SYSTEM/sd_raw.c **** 
+ 390:SYSTEM/sd_raw.c **** /**
+ 391:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 392:SYSTEM/sd_raw.c ****  * Reads raw data from the card.
+ 393:SYSTEM/sd_raw.c ****  *
+ 394:SYSTEM/sd_raw.c ****  * \param[in] offset The offset from which to read.
+ 395:SYSTEM/sd_raw.c ****  * \param[out] buffer The buffer into which to write the data.
+ 396:SYSTEM/sd_raw.c ****  * \param[in] length The number of bytes to read.
+ 397:SYSTEM/sd_raw.c ****  * \returns 0 on failure, 1 on success.
+ 398:SYSTEM/sd_raw.c ****  * \see sd_raw_read_interval, sd_raw_write
+ 399:SYSTEM/sd_raw.c ****  */
+ 400:SYSTEM/sd_raw.c **** unsigned char sd_raw_read(unsigned int offset, unsigned char* buffer, unsigned short length)
+ 401:SYSTEM/sd_raw.c **** {
+ 402:SYSTEM/sd_raw.c ****     unsigned int block_address;
+ 403:SYSTEM/sd_raw.c ****     unsigned short block_offset;
+ 404:SYSTEM/sd_raw.c ****     unsigned short read_length;
+ 405:SYSTEM/sd_raw.c ****     while(length > 0)
+ 406:SYSTEM/sd_raw.c ****     {
+ 407:SYSTEM/sd_raw.c ****         /* determine byte count to read at once */
+ 408:SYSTEM/sd_raw.c ****         block_address = offset & 0xfffffe00;
+ 409:SYSTEM/sd_raw.c ****         block_offset = offset & 0x01ff;
+ 410:SYSTEM/sd_raw.c ****         read_length = 512 - block_offset; /* read up to block border */
+ 411:SYSTEM/sd_raw.c ****         if(read_length > length)
+ 412:SYSTEM/sd_raw.c ****             read_length = length;
+ 413:SYSTEM/sd_raw.c **** 
+ 414:SYSTEM/sd_raw.c ****         #if !SD_RAW_SAVE_RAM
+ 415:SYSTEM/sd_raw.c ****             /* check if the requested data is cached */
+ 416:SYSTEM/sd_raw.c ****             if(block_address != raw_block_address)
+ 417:SYSTEM/sd_raw.c ****             #endif
+ 418:SYSTEM/sd_raw.c ****         {
+ 419:SYSTEM/sd_raw.c ****             #if SD_RAW_WRITE_BUFFERING
+ 420:SYSTEM/sd_raw.c ****                 if(!raw_block_written)
+ 421:SYSTEM/sd_raw.c ****                 {
+ 422:SYSTEM/sd_raw.c ****                     if(!sd_raw_write(raw_block_address, raw_block, sizeof(raw_block)))
+ 423:SYSTEM/sd_raw.c ****                         return 0;
+ 424:SYSTEM/sd_raw.c ****                 }
+ 425:SYSTEM/sd_raw.c ****             #endif
+ 426:SYSTEM/sd_raw.c **** 
+ 427:SYSTEM/sd_raw.c ****             /* address card */
+ 428:SYSTEM/sd_raw.c ****             select_card();
+ 429:SYSTEM/sd_raw.c **** 
+ 430:SYSTEM/sd_raw.c ****             /* send single block request */
+ 431:SYSTEM/sd_raw.c ****             if(sd_raw_send_command_r1(CMD_READ_SINGLE_BLOCK, block_address))
+ 432:SYSTEM/sd_raw.c ****             {
+ 433:SYSTEM/sd_raw.c ****                 unselect_card();
+ 434:SYSTEM/sd_raw.c ****                 return 0;
+ 435:SYSTEM/sd_raw.c ****             }
+ 436:SYSTEM/sd_raw.c **** 
+ 437:SYSTEM/sd_raw.c ****             /* wait for data block (start byte 0xfe) */
+ 438:SYSTEM/sd_raw.c ****             while(sd_raw_rec_byte() != 0xfe);
+ 439:SYSTEM/sd_raw.c **** 
+ 440:SYSTEM/sd_raw.c ****             #if SD_RAW_SAVE_RAM
+ 441:SYSTEM/sd_raw.c ****                 /* read byte block */
+ 442:SYSTEM/sd_raw.c ****                 unsigned short read_to = block_offset + read_length;
+ 443:SYSTEM/sd_raw.c ****                 for(unsigned short i = 0; i < 512; ++i)
+ 444:SYSTEM/sd_raw.c ****                 {
+ 445:SYSTEM/sd_raw.c ****                     unsigned char b = sd_raw_rec_byte();
+ 446:SYSTEM/sd_raw.c ****                     if(i >= block_offset && i < read_to)
+ 447:SYSTEM/sd_raw.c ****                         *buffer++ = b;
+ 448:SYSTEM/sd_raw.c ****                 }
+ 449:SYSTEM/sd_raw.c ****             #else
+ 450:SYSTEM/sd_raw.c ****                 /* read byte block */
+ 451:SYSTEM/sd_raw.c ****                 unsigned char* cache = raw_block;
+ 452:SYSTEM/sd_raw.c ****                 unsigned short i;
+ 453:SYSTEM/sd_raw.c ****                 for(i = 0; i < 512; ++i)
+ 454:SYSTEM/sd_raw.c ****                     *cache++ = sd_raw_rec_byte();
+ 455:SYSTEM/sd_raw.c ****                 raw_block_address = block_address;
+ 456:SYSTEM/sd_raw.c ****     
+ 457:SYSTEM/sd_raw.c ****                 memcpy(buffer, raw_block + block_offset, read_length);
+ 458:SYSTEM/sd_raw.c ****                 buffer += read_length;
+ 459:SYSTEM/sd_raw.c ****             #endif
+ 460:SYSTEM/sd_raw.c **** 
+ 461:SYSTEM/sd_raw.c ****             /* read crc16 */
+ 462:SYSTEM/sd_raw.c ****             sd_raw_rec_byte();
+ 463:SYSTEM/sd_raw.c ****             sd_raw_rec_byte();
+ 464:SYSTEM/sd_raw.c **** 
+ 465:SYSTEM/sd_raw.c ****             /* deaddress card */
+ 466:SYSTEM/sd_raw.c ****             unselect_card();
+ 467:SYSTEM/sd_raw.c **** 
+ 468:SYSTEM/sd_raw.c ****             /* let card some time to finish */
+ 469:SYSTEM/sd_raw.c ****             sd_raw_rec_byte();
+ 470:SYSTEM/sd_raw.c ****         }
+ 471:SYSTEM/sd_raw.c ****         #if !SD_RAW_SAVE_RAM
+ 472:SYSTEM/sd_raw.c ****             else
+ 473:SYSTEM/sd_raw.c ****             {
+ 474:SYSTEM/sd_raw.c ****                 /* use cached data */
+ 475:SYSTEM/sd_raw.c ****                 memcpy(buffer, raw_block + block_offset, read_length);
+ 476:SYSTEM/sd_raw.c ****             }
+ 477:SYSTEM/sd_raw.c ****         #endif
+ 478:SYSTEM/sd_raw.c **** 
+ 479:SYSTEM/sd_raw.c ****         length -= read_length;
+ 480:SYSTEM/sd_raw.c ****         offset += read_length;
+ 481:SYSTEM/sd_raw.c ****     }
+ 482:SYSTEM/sd_raw.c **** 
+ 483:SYSTEM/sd_raw.c ****     return 1;
+ 484:SYSTEM/sd_raw.c **** }
+ 485:SYSTEM/sd_raw.c **** 
+ 486:SYSTEM/sd_raw.c **** /**
+ 487:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 488:SYSTEM/sd_raw.c ****  * Continuously reads units of \c interval bytes and calls a callback function.
+ 489:SYSTEM/sd_raw.c ****  *
+ 490:SYSTEM/sd_raw.c ****  * This function starts reading at the specified offset. Every \c interval bytes,
+ 491:SYSTEM/sd_raw.c ****  * it calls the callback function with the associated data buffer.
+ 492:SYSTEM/sd_raw.c ****  *
+ 493:SYSTEM/sd_raw.c ****  * By returning zero, the callback may stop reading.
+ 494:SYSTEM/sd_raw.c ****  *
+ 495:SYSTEM/sd_raw.c ****  * \note Within the callback function, you can not start another read or
+ 496:SYSTEM/sd_raw.c ****  *       write operation.
+ 497:SYSTEM/sd_raw.c ****  * \note This function only works if the following conditions are met:
+ 498:SYSTEM/sd_raw.c ****  *       - (offset - (offset % 512)) % interval == 0
+ 499:SYSTEM/sd_raw.c ****  *       - length % interval == 0
+ 500:SYSTEM/sd_raw.c ****  *
+ 501:SYSTEM/sd_raw.c ****  * \param[in] offset Offset from which to start reading.
+ 502:SYSTEM/sd_raw.c ****  * \param[in] buffer Pointer to a buffer which is at least interval bytes in size.
+ 503:SYSTEM/sd_raw.c ****  * \param[in] interval Number of bytes to read before calling the callback function.
+ 504:SYSTEM/sd_raw.c ****  * \param[in] length Number of bytes to read altogether.
+ 505:SYSTEM/sd_raw.c ****  * \param[in] callback The function to call every interval bytes.
+ 506:SYSTEM/sd_raw.c ****  * \param[in] p An opaque pointer directly passed to the callback function.
+ 507:SYSTEM/sd_raw.c ****  * \returns 0 on failure, 1 on success
+ 508:SYSTEM/sd_raw.c ****  * \see sd_raw_read, sd_raw_write
+ 509:SYSTEM/sd_raw.c ****  */
+ 510:SYSTEM/sd_raw.c **** unsigned char sd_raw_read_interval(unsigned int offset, unsigned char* buffer, unsigned short inter
+ 511:SYSTEM/sd_raw.c **** {
+ 512:SYSTEM/sd_raw.c ****     if(!buffer || interval == 0 || length < interval || !callback)
+ 513:SYSTEM/sd_raw.c ****         return 0;
+ 514:SYSTEM/sd_raw.c **** 
+ 515:SYSTEM/sd_raw.c ****     #if !SD_RAW_SAVE_RAM
+ 516:SYSTEM/sd_raw.c ****         while(length >= interval)
+ 517:SYSTEM/sd_raw.c ****         {
+ 518:SYSTEM/sd_raw.c ****             /* as reading is now buffered, we directly
+ 519:SYSTEM/sd_raw.c ****                      * hand over the request to sd_raw_read()
+ 520:SYSTEM/sd_raw.c ****                      */
+ 521:SYSTEM/sd_raw.c ****             if(!sd_raw_read(offset, buffer, interval))
+ 522:SYSTEM/sd_raw.c ****                 return 0;
+ 523:SYSTEM/sd_raw.c ****             if(!callback(buffer, offset, p))
+ 524:SYSTEM/sd_raw.c ****                 break;
+ 525:SYSTEM/sd_raw.c ****             offset += interval;
+ 526:SYSTEM/sd_raw.c ****             length -= interval;
+ 527:SYSTEM/sd_raw.c ****         }
+ 528:SYSTEM/sd_raw.c ****     
+ 529:SYSTEM/sd_raw.c ****         return 1;
+ 530:SYSTEM/sd_raw.c ****     #else
+ 531:SYSTEM/sd_raw.c ****         /* address card */
+ 532:SYSTEM/sd_raw.c ****         select_card();
+ 533:SYSTEM/sd_raw.c ****     
+ 534:SYSTEM/sd_raw.c ****         unsigned short block_offset;
+ 535:SYSTEM/sd_raw.c ****         unsigned short read_length;
+ 536:SYSTEM/sd_raw.c ****         unsigned char* buffer_cur;
+ 537:SYSTEM/sd_raw.c ****         unsigned char finished = 0;
+ 538:SYSTEM/sd_raw.c ****         do
+ 539:SYSTEM/sd_raw.c ****         {
+ 540:SYSTEM/sd_raw.c ****             /* determine byte count to read at once */
+ 541:SYSTEM/sd_raw.c ****             block_offset = offset & 0x01ff;
+ 542:SYSTEM/sd_raw.c ****             read_length = 512 - block_offset;
+ 543:SYSTEM/sd_raw.c ****     
+ 544:SYSTEM/sd_raw.c ****             /* send single block request */
+ 545:SYSTEM/sd_raw.c ****             if(sd_raw_send_command_r1(CMD_READ_SINGLE_BLOCK, offset & 0xfffffe00))
+ 546:SYSTEM/sd_raw.c ****             {
+ 547:SYSTEM/sd_raw.c ****                 unselect_card();
+ 548:SYSTEM/sd_raw.c ****                 return 0;
+ 549:SYSTEM/sd_raw.c ****             }
+ 550:SYSTEM/sd_raw.c ****     
+ 551:SYSTEM/sd_raw.c ****             /* wait for data block (start byte 0xfe) */
+ 552:SYSTEM/sd_raw.c ****             while(sd_raw_rec_byte() != 0xfe);
+ 553:SYSTEM/sd_raw.c ****             unsigned short i;
+ 554:SYSTEM/sd_raw.c ****             /* read up to the data of interest */
+ 555:SYSTEM/sd_raw.c ****             for(i = 0; i < block_offset; ++i)
+ 556:SYSTEM/sd_raw.c ****                 sd_raw_rec_byte();
+ 557:SYSTEM/sd_raw.c ****     
+ 558:SYSTEM/sd_raw.c ****             /* read interval bytes of data and execute the callback */
+ 559:SYSTEM/sd_raw.c ****             do
+ 560:SYSTEM/sd_raw.c ****             {
+ 561:SYSTEM/sd_raw.c ****                 if(read_length < interval || length < interval)
+ 562:SYSTEM/sd_raw.c ****                     break;
+ 563:SYSTEM/sd_raw.c ****     
+ 564:SYSTEM/sd_raw.c ****                 buffer_cur = buffer;
+ 565:SYSTEM/sd_raw.c ****                 for(i = 0; i < interval; ++i)
+ 566:SYSTEM/sd_raw.c ****                     *buffer_cur++ = sd_raw_rec_byte();
+ 567:SYSTEM/sd_raw.c ****     
+ 568:SYSTEM/sd_raw.c ****                 if(!callback(buffer, offset + (512 - read_length), p))
+ 569:SYSTEM/sd_raw.c ****                 {
+ 570:SYSTEM/sd_raw.c ****                     finished = 1;
+ 571:SYSTEM/sd_raw.c ****                     break;
+ 572:SYSTEM/sd_raw.c ****                 }
+ 573:SYSTEM/sd_raw.c ****     
+ 574:SYSTEM/sd_raw.c ****                 read_length -= interval;
+ 575:SYSTEM/sd_raw.c ****                 length -= interval;
+ 576:SYSTEM/sd_raw.c ****     
+ 577:SYSTEM/sd_raw.c ****             }
+ 578:SYSTEM/sd_raw.c ****             while(read_length > 0 && length > 0);
+ 579:SYSTEM/sd_raw.c ****     
+ 580:SYSTEM/sd_raw.c ****             /* read rest of data block */
+ 581:SYSTEM/sd_raw.c ****             while(read_length-- > 0)
+ 582:SYSTEM/sd_raw.c ****                 sd_raw_rec_byte();
+ 583:SYSTEM/sd_raw.c ****     
+ 584:SYSTEM/sd_raw.c ****             /* read crc16 */
+ 585:SYSTEM/sd_raw.c ****             sd_raw_rec_byte();
+ 586:SYSTEM/sd_raw.c ****             sd_raw_rec_byte();
+ 587:SYSTEM/sd_raw.c ****     
+ 588:SYSTEM/sd_raw.c ****             if(length < interval)
+ 589:SYSTEM/sd_raw.c ****                 break;
+ 590:SYSTEM/sd_raw.c ****     
+ 591:SYSTEM/sd_raw.c ****             offset = (offset & 0xfffffe00) + 512;
+ 592:SYSTEM/sd_raw.c ****     
+ 593:SYSTEM/sd_raw.c ****         }
+ 594:SYSTEM/sd_raw.c ****         while(!finished);
+ 595:SYSTEM/sd_raw.c ****     
+ 596:SYSTEM/sd_raw.c ****         /* deaddress card */
+ 597:SYSTEM/sd_raw.c ****         unselect_card();
+ 598:SYSTEM/sd_raw.c ****     
+ 599:SYSTEM/sd_raw.c ****         /* let card some time to finish */
+ 600:SYSTEM/sd_raw.c ****         sd_raw_rec_byte();
+ 601:SYSTEM/sd_raw.c ****     
+ 602:SYSTEM/sd_raw.c ****         return 1;
+ 603:SYSTEM/sd_raw.c ****     #endif
+ 604:SYSTEM/sd_raw.c **** }
+ 605:SYSTEM/sd_raw.c **** 
+ 606:SYSTEM/sd_raw.c **** /**
+ 607:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 608:SYSTEM/sd_raw.c ****  * Writes raw data to the card.
+ 609:SYSTEM/sd_raw.c ****  *
+ 610:SYSTEM/sd_raw.c ****  * \note If write buffering is enabled, you might have to
+ 611:SYSTEM/sd_raw.c ****  *       call sd_raw_sync() before disconnecting the card
+ 612:SYSTEM/sd_raw.c ****  *       to ensure all remaining data has been written.
+ 613:SYSTEM/sd_raw.c ****  *
+ 614:SYSTEM/sd_raw.c ****  * \param[in] offset The offset where to start writing.
+ 615:SYSTEM/sd_raw.c ****  * \param[in] buffer The buffer containing the data to be written.
+ 616:SYSTEM/sd_raw.c ****  * \param[in] length The number of bytes to write.
+ 617:SYSTEM/sd_raw.c ****  * \returns 0 on failure, 1 on success.
+ 618:SYSTEM/sd_raw.c ****  * \see sd_raw_read
+ 619:SYSTEM/sd_raw.c ****  */
+ 620:SYSTEM/sd_raw.c **** unsigned char sd_raw_write(unsigned int offset, const unsigned char* buffer, unsigned short length)
+ 621:SYSTEM/sd_raw.c **** {
+ 622:SYSTEM/sd_raw.c ****     #if SD_RAW_WRITE_SUPPORT
+ 623:SYSTEM/sd_raw.c ****     
+ 624:SYSTEM/sd_raw.c ****         if(get_pin_locked())
+ 625:SYSTEM/sd_raw.c ****             return 0;
+ 626:SYSTEM/sd_raw.c ****     
+ 627:SYSTEM/sd_raw.c ****         unsigned int block_address;
+ 628:SYSTEM/sd_raw.c ****         unsigned short block_offset;
+ 629:SYSTEM/sd_raw.c ****         unsigned short write_length;
+ 630:SYSTEM/sd_raw.c ****         while(length > 0)
+ 631:SYSTEM/sd_raw.c ****         {
+ 632:SYSTEM/sd_raw.c ****             /* determine byte count to write at once */
+ 633:SYSTEM/sd_raw.c ****             block_address = offset & 0xfffffe00;
+ 634:SYSTEM/sd_raw.c ****             block_offset = offset & 0x01ff;
+ 635:SYSTEM/sd_raw.c ****             write_length = 512 - block_offset; /* write up to block border */
+ 636:SYSTEM/sd_raw.c ****             if(write_length > length)
+ 637:SYSTEM/sd_raw.c ****                 write_length = length;
+ 638:SYSTEM/sd_raw.c ****     
+ 639:SYSTEM/sd_raw.c ****             /* Merge the data to write with the content of the block.
+ 640:SYSTEM/sd_raw.c ****                      * Use the cached block if available.
+ 641:SYSTEM/sd_raw.c ****                      */
+ 642:SYSTEM/sd_raw.c ****             if(block_address != raw_block_address)
+ 643:SYSTEM/sd_raw.c ****             {
+ 644:SYSTEM/sd_raw.c ****                 #if SD_RAW_WRITE_BUFFERING
+ 645:SYSTEM/sd_raw.c ****                 if(!raw_block_written)
+ 646:SYSTEM/sd_raw.c ****                 {
+ 647:SYSTEM/sd_raw.c ****                     if(!sd_raw_write(raw_block_address, raw_block, sizeof(raw_block)))
+ 648:SYSTEM/sd_raw.c ****                         return 0;
+ 649:SYSTEM/sd_raw.c ****                 }
+ 650:SYSTEM/sd_raw.c ****             #endif
+ 651:SYSTEM/sd_raw.c **** 
+ 652:SYSTEM/sd_raw.c ****             if(block_offset || write_length < 512)
+ 653:SYSTEM/sd_raw.c ****             {
+ 654:SYSTEM/sd_raw.c ****                 if(!sd_raw_read(block_address, raw_block, sizeof(raw_block)))
+ 655:SYSTEM/sd_raw.c ****                     return 0;
+ 656:SYSTEM/sd_raw.c ****             }
+ 657:SYSTEM/sd_raw.c ****             raw_block_address = block_address;
+ 658:SYSTEM/sd_raw.c ****         }
+ 659:SYSTEM/sd_raw.c **** 
+ 660:SYSTEM/sd_raw.c ****         if(buffer != raw_block)
+ 661:SYSTEM/sd_raw.c ****         {
+ 662:SYSTEM/sd_raw.c ****             memcpy(raw_block + block_offset, buffer, write_length);
+ 663:SYSTEM/sd_raw.c **** 
+ 664:SYSTEM/sd_raw.c ****             #if SD_RAW_WRITE_BUFFERING
+ 665:SYSTEM/sd_raw.c ****                 raw_block_written = 0;
+ 666:SYSTEM/sd_raw.c ****     
+ 667:SYSTEM/sd_raw.c ****                 if(length == write_length)
+ 668:SYSTEM/sd_raw.c ****                     return 1;
+ 669:SYSTEM/sd_raw.c ****             #endif
+ 670:SYSTEM/sd_raw.c ****         }
+ 671:SYSTEM/sd_raw.c **** 
+ 672:SYSTEM/sd_raw.c ****         buffer += write_length;
+ 673:SYSTEM/sd_raw.c **** 
+ 674:SYSTEM/sd_raw.c ****         /* address card */
+ 675:SYSTEM/sd_raw.c ****         select_card();
+ 676:SYSTEM/sd_raw.c **** 
+ 677:SYSTEM/sd_raw.c ****         /* send single block request */
+ 678:SYSTEM/sd_raw.c ****         if(sd_raw_send_command_r1(CMD_WRITE_SINGLE_BLOCK, block_address))
+ 679:SYSTEM/sd_raw.c ****         {
+ 680:SYSTEM/sd_raw.c ****             unselect_card();
+ 681:SYSTEM/sd_raw.c ****             return 0;
+ 682:SYSTEM/sd_raw.c ****         }
+ 683:SYSTEM/sd_raw.c **** 
+ 684:SYSTEM/sd_raw.c ****         /* send start byte */
+ 685:SYSTEM/sd_raw.c ****         sd_raw_send_byte(0xfe);
+ 686:SYSTEM/sd_raw.c **** 
+ 687:SYSTEM/sd_raw.c ****         /* write byte block */
+ 688:SYSTEM/sd_raw.c ****         unsigned char* cache = raw_block;
+ 689:SYSTEM/sd_raw.c ****         unsigned short i;
+ 690:SYSTEM/sd_raw.c ****         for(i = 0; i < 512; ++i)
+ 691:SYSTEM/sd_raw.c ****             sd_raw_send_byte(*cache++);
+ 692:SYSTEM/sd_raw.c **** 
+ 693:SYSTEM/sd_raw.c ****         /* write dummy crc16 */
+ 694:SYSTEM/sd_raw.c ****         sd_raw_send_byte(0xff);
+ 695:SYSTEM/sd_raw.c ****         sd_raw_send_byte(0xff);
+ 696:SYSTEM/sd_raw.c **** 
+ 697:SYSTEM/sd_raw.c ****         /* wait while card is busy */
+ 698:SYSTEM/sd_raw.c ****         while(sd_raw_rec_byte() != 0xff);
+ 699:SYSTEM/sd_raw.c ****         sd_raw_rec_byte();
+ 700:SYSTEM/sd_raw.c **** 
+ 701:SYSTEM/sd_raw.c ****         /* deaddress card */
+ 702:SYSTEM/sd_raw.c ****         unselect_card();
+ 703:SYSTEM/sd_raw.c **** 
+ 704:SYSTEM/sd_raw.c ****         length -= write_length;
+ 705:SYSTEM/sd_raw.c ****         offset += write_length;
+ 706:SYSTEM/sd_raw.c **** 
+ 707:SYSTEM/sd_raw.c ****         #if SD_RAW_WRITE_BUFFERING
+ 708:SYSTEM/sd_raw.c ****             raw_block_written = 1;
+ 709:SYSTEM/sd_raw.c ****         #endif
+ 710:SYSTEM/sd_raw.c ****     }
+ 711:SYSTEM/sd_raw.c **** 
+ 712:SYSTEM/sd_raw.c ****     return 1;
+ 713:SYSTEM/sd_raw.c ****     #else
+ 714:SYSTEM/sd_raw.c ****         return 0;
+ 715:SYSTEM/sd_raw.c ****     #endif
+ 716:SYSTEM/sd_raw.c **** }
+ 717:SYSTEM/sd_raw.c **** 
+ 718:SYSTEM/sd_raw.c **** /**
+ 719:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 720:SYSTEM/sd_raw.c ****  * Writes the write buffer's content to the card.
+ 721:SYSTEM/sd_raw.c ****  *
+ 722:SYSTEM/sd_raw.c ****  * \note When write buffering is enabled, you should
+ 723:SYSTEM/sd_raw.c ****  *       call this function before disconnecting the
+ 724:SYSTEM/sd_raw.c ****  *       card to ensure all remaining data has been
+ 725:SYSTEM/sd_raw.c ****  *       written.
+ 726:SYSTEM/sd_raw.c ****  *
+ 727:SYSTEM/sd_raw.c ****  * \returns 0 on failure, 1 on success.
+ 728:SYSTEM/sd_raw.c ****  * \see sd_raw_write
+ 729:SYSTEM/sd_raw.c ****  */
+ 730:SYSTEM/sd_raw.c **** unsigned char sd_raw_sync()
+ 731:SYSTEM/sd_raw.c **** {
+ 732:SYSTEM/sd_raw.c ****     #if SD_RAW_WRITE_SUPPORT
+ 733:SYSTEM/sd_raw.c ****         #if SD_RAW_WRITE_BUFFERING
+ 734:SYSTEM/sd_raw.c ****         if(raw_block_written)
+ 735:SYSTEM/sd_raw.c ****             return 1;
+ 736:SYSTEM/sd_raw.c ****         if(!sd_raw_write(raw_block_address, raw_block, sizeof(raw_block)))
+ 737:SYSTEM/sd_raw.c ****             return 0;
+ 738:SYSTEM/sd_raw.c ****     #endif
+ 739:SYSTEM/sd_raw.c ****     return 1;
+ 740:SYSTEM/sd_raw.c ****     #else
+ 741:SYSTEM/sd_raw.c ****     return 0;
+ 742:SYSTEM/sd_raw.c ****     #endif
+ 743:SYSTEM/sd_raw.c **** }
+ 744:SYSTEM/sd_raw.c **** 
+ 745:SYSTEM/sd_raw.c **** /**
+ 746:SYSTEM/sd_raw.c ****  * \ingroup sd_raw
+ 747:SYSTEM/sd_raw.c ****  * Reads informational data from the card.
+ 748:SYSTEM/sd_raw.c ****  *
+ 749:SYSTEM/sd_raw.c ****  * This function reads and returns the card's registers
+ 750:SYSTEM/sd_raw.c ****  * containing manufacturing and status information.
+ 751:SYSTEM/sd_raw.c ****  *
+ 752:SYSTEM/sd_raw.c ****  * \note: The information retrieved by this function is
+ 753:SYSTEM/sd_raw.c ****  *        not required in any way to operate on the card,
+ 754:SYSTEM/sd_raw.c ****  *        but it might be nice to display some of the data
+ 755:SYSTEM/sd_raw.c ****  *        to the user.
+ 756:SYSTEM/sd_raw.c ****  *
+ 757:SYSTEM/sd_raw.c ****  * \param[in] info A pointer to the structure into which to save the information.
+ 758:SYSTEM/sd_raw.c ****  * \returns 0 on failure, 1 on success.
+ 759:SYSTEM/sd_raw.c ****  */
+ 760:SYSTEM/sd_raw.c **** unsigned char sd_raw_get_info(struct sd_raw_info* info)
+ 761:SYSTEM/sd_raw.c **** {
+ 762:SYSTEM/sd_raw.c ****     if(!info || !sd_raw_available())
+ 763:SYSTEM/sd_raw.c ****         return 0;
+ 764:SYSTEM/sd_raw.c **** 
+ 765:SYSTEM/sd_raw.c ****     memset(info, 0, sizeof(*info));
+ 766:SYSTEM/sd_raw.c **** 
+ 767:SYSTEM/sd_raw.c ****     select_card();
+ 768:SYSTEM/sd_raw.c **** 
+ 769:SYSTEM/sd_raw.c ****     /* read cid register */
+ 770:SYSTEM/sd_raw.c ****     if(sd_raw_send_command_r1(CMD_SEND_CID, 0))
+ 771:SYSTEM/sd_raw.c ****     {
+ 772:SYSTEM/sd_raw.c ****         unselect_card();
+ 773:SYSTEM/sd_raw.c ****         return 0;
+ 774:SYSTEM/sd_raw.c ****     }
+ 775:SYSTEM/sd_raw.c ****     while(sd_raw_rec_byte() != 0xfe);
+ 776:SYSTEM/sd_raw.c ****     unsigned char i;
+ 777:SYSTEM/sd_raw.c ****     for(i = 0; i < 18; ++i)
+ 778:SYSTEM/sd_raw.c ****     {
+ 779:SYSTEM/sd_raw.c ****         unsigned char b = sd_raw_rec_byte();
+ 780:SYSTEM/sd_raw.c **** 
+ 781:SYSTEM/sd_raw.c ****         switch(i)
+ 782:SYSTEM/sd_raw.c ****         {
+ 783:SYSTEM/sd_raw.c ****             case 0:
+ 784:SYSTEM/sd_raw.c ****                 info->manufacturer = b;
+ 785:SYSTEM/sd_raw.c ****                 break;
+ 786:SYSTEM/sd_raw.c ****             case 1:
+ 787:SYSTEM/sd_raw.c ****             case 2:
+ 788:SYSTEM/sd_raw.c ****                 info->oem[i - 1] = b;
+ 789:SYSTEM/sd_raw.c ****                 break;
+ 790:SYSTEM/sd_raw.c ****             case 3:
+ 791:SYSTEM/sd_raw.c ****             case 4:
+ 792:SYSTEM/sd_raw.c ****             case 5:
+ 793:SYSTEM/sd_raw.c ****             case 6:
+ 794:SYSTEM/sd_raw.c ****             case 7:
+ 795:SYSTEM/sd_raw.c ****                 info->product[i - 3] = b;
+ 796:SYSTEM/sd_raw.c ****                 break;
+ 797:SYSTEM/sd_raw.c ****             case 8:
+ 798:SYSTEM/sd_raw.c ****                 info->revision = b;
+ 799:SYSTEM/sd_raw.c ****                 break;
+ 800:SYSTEM/sd_raw.c ****             case 9:
+ 801:SYSTEM/sd_raw.c ****             case 10:
+ 802:SYSTEM/sd_raw.c ****             case 11:
+ 803:SYSTEM/sd_raw.c ****             case 12:
+ 804:SYSTEM/sd_raw.c ****                 info->serial |= (unsigned int) b << ((12 - i) * 8);
+ 805:SYSTEM/sd_raw.c ****                 break;
+ 806:SYSTEM/sd_raw.c ****             case 13:
+ 807:SYSTEM/sd_raw.c ****                 info->manufacturing_year = b << 4;
+ 808:SYSTEM/sd_raw.c ****                 break;
+ 809:SYSTEM/sd_raw.c ****             case 14:
+ 810:SYSTEM/sd_raw.c ****                 info->manufacturing_year |= b >> 4;
+ 811:SYSTEM/sd_raw.c ****                 info->manufacturing_month = b & 0x0f;
+ 812:SYSTEM/sd_raw.c ****                 break;
+ 813:SYSTEM/sd_raw.c ****         }
+ 814:SYSTEM/sd_raw.c ****     }
+ 815:SYSTEM/sd_raw.c **** 
+ 816:SYSTEM/sd_raw.c ****     /* read csd register */
+ 817:SYSTEM/sd_raw.c ****     unsigned char csd_read_bl_len = 0;
+ 818:SYSTEM/sd_raw.c ****     unsigned char csd_c_size_mult = 0;
+ 819:SYSTEM/sd_raw.c ****     unsigned short csd_c_size = 0;
+ 820:SYSTEM/sd_raw.c ****     if(sd_raw_send_command_r1(CMD_SEND_CSD, 0))
+ 821:SYSTEM/sd_raw.c ****     {
+ 822:SYSTEM/sd_raw.c ****         unselect_card();
+ 823:SYSTEM/sd_raw.c ****         return 0;
+ 824:SYSTEM/sd_raw.c ****     }
+ 825:SYSTEM/sd_raw.c ****     while(sd_raw_rec_byte() != 0xfe);
+ 826:SYSTEM/sd_raw.c ****     for(i = 0; i < 18; ++i)
+ 827:SYSTEM/sd_raw.c ****     {
+ 828:SYSTEM/sd_raw.c ****         unsigned char b = sd_raw_rec_byte();
+ 829:SYSTEM/sd_raw.c **** 
+ 830:SYSTEM/sd_raw.c ****         switch(i)
+ 831:SYSTEM/sd_raw.c ****         {
+ 832:SYSTEM/sd_raw.c ****             case 5:
+ 833:SYSTEM/sd_raw.c ****                 csd_read_bl_len = b & 0x0f;
+ 834:SYSTEM/sd_raw.c ****                 break;
+ 835:SYSTEM/sd_raw.c ****             case 6:
+ 836:SYSTEM/sd_raw.c ****                 csd_c_size = (unsigned short) (b & 0x03) << 8;
+ 837:SYSTEM/sd_raw.c ****                 break;
+ 838:SYSTEM/sd_raw.c ****             case 7:
+ 839:SYSTEM/sd_raw.c ****                 csd_c_size |= b;
+ 840:SYSTEM/sd_raw.c ****                 csd_c_size <<= 2;
+ 841:SYSTEM/sd_raw.c ****                 break;
+ 842:SYSTEM/sd_raw.c ****             case 8:
+ 843:SYSTEM/sd_raw.c ****                 csd_c_size |= b >> 6;
+ 844:SYSTEM/sd_raw.c ****                 ++csd_c_size;
+ 845:SYSTEM/sd_raw.c ****                 break;
+ 846:SYSTEM/sd_raw.c ****             case 9:
+ 847:SYSTEM/sd_raw.c ****                 csd_c_size_mult = (b & 0x03) << 1;
+ 848:SYSTEM/sd_raw.c ****                 break;
+ 849:SYSTEM/sd_raw.c ****             case 10:
+ 850:SYSTEM/sd_raw.c ****                 csd_c_size_mult |= b >> 7;
+ 851:SYSTEM/sd_raw.c **** 
+ 852:SYSTEM/sd_raw.c ****                 info->capacity = (unsigned int) csd_c_size << (csd_c_size_mult + csd_read_bl_len + 
+ 853:SYSTEM/sd_raw.c **** 
+ 854:SYSTEM/sd_raw.c ****                 break;
+ 855:SYSTEM/sd_raw.c ****             case 14:
+ 856:SYSTEM/sd_raw.c ****                 if(b & 0x40)
+ 857:SYSTEM/sd_raw.c ****                     info->flag_copy = 1;
+ 858:SYSTEM/sd_raw.c ****                 if(b & 0x20)
+ 859:SYSTEM/sd_raw.c ****                     info->flag_write_protect = 1;
+ 860:SYSTEM/sd_raw.c ****                 if(b & 0x10)
+ 861:SYSTEM/sd_raw.c ****                     info->flag_write_protect_temp = 1;
+ 862:SYSTEM/sd_raw.c ****                 info->format = (b & 0x0c) >> 2;
+ 863:SYSTEM/sd_raw.c ****                 break;
+ 864:SYSTEM/sd_raw.c ****         }
+ 865:SYSTEM/sd_raw.c ****     }
+ 866:SYSTEM/sd_raw.c **** 
+ 867:SYSTEM/sd_raw.c ****     unselect_card();
+ 868:SYSTEM/sd_raw.c **** 
+ 869:SYSTEM/sd_raw.c ****     return 1;
+ 870:SYSTEM/sd_raw.c **** }
+ 871:SYSTEM/sd_raw.c **** 
+ 872:SYSTEM/sd_raw.c **** void SDoff(void)
+ 873:SYSTEM/sd_raw.c **** {
+ 255              		.loc 1 873 0
+ 256              		@ Function supports interworking.
+ 257              		@ args = 0, pretend = 0, frame = 0
+ 258              		@ frame_needed = 0, uses_anonymous_args = 0
+ 259              		@ link register save eliminated.
+ 874:SYSTEM/sd_raw.c ****     SPI_SS_IODIR &= ~(1<<SPI_SS_PIN);
+ 260              		.loc 1 874 0
+ 261 014c 1C309FE5 		ldr	r3, .L35
+ 262 0150 082093E5 		ldr	r2, [r3, #8]
+ 263 0154 8020C2E3 		bic	r2, r2, #128
+ 264 0158 082083E5 		str	r2, [r3, #8]
+ 875:SYSTEM/sd_raw.c ****     PINSEL0 &= ~(0x1500);
+ 265              		.loc 1 875 0
+ 266 015c 013983E2 		add	r3, r3, #16384
+ 267 0160 002093E5 		ldr	r2, [r3, #0]
+ 268 0164 152CC2E3 		bic	r2, r2, #5376
+ 269 0168 002083E5 		str	r2, [r3, #0]
+ 876:SYSTEM/sd_raw.c **** }
+ 270              		.loc 1 876 0
+ 271 016c 1EFF2FE1 		bx	lr
+ 272              	.L36:
+ 273              		.align	2
+ 274              	.L35:
+ 275 0170 008002E0 		.word	-536707072
+ 276              	.LFE11:
+ 278              		.align	2
+ 279              		.global	sd_raw_get_info
+ 281              	sd_raw_get_info:
+ 282              	.LFB10:
+ 283              		.loc 1 761 0
+ 284              		@ Function supports interworking.
+ 285              		@ args = 0, pretend = 0, frame = 0
+ 286              		@ frame_needed = 0, uses_anonymous_args = 0
+ 287              	.LVL10:
+ 288 0174 F0472DE9 		stmfd	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
+ 289              	.LCFI0:
+ 290              		.loc 1 762 0
+ 291 0178 004050E2 		subs	r4, r0, #0
+ 292 017c B300000A 		beq	.L38
+ 293              	.LVL11:
+ 294              	.LBB84:
+ 295              	.LBB85:
+ 296              		.loc 1 268 0
+ 297 0180 D4529FE5 		ldr	r5, .L81
+ 298 0184 083095E5 		ldr	r3, [r5, #8]
+ 299 0188 8030C3E3 		bic	r3, r3, #128
+ 300 018c 083085E5 		str	r3, [r5, #8]
+ 301              		.loc 1 270 0
+ 302 0190 002095E5 		ldr	r2, [r5, #0]
+ 303              		.loc 1 271 0
+ 304 0194 083095E5 		ldr	r3, [r5, #8]
+ 305              	.LBE85:
+ 306              	.LBE84:
+ 307              		.loc 1 762 0
+ 308 0198 800012E3 		tst	r2, #128
+ 309              	.LBB87:
+ 310              	.LBB86:
+ 311              		.loc 1 271 0
+ 312 019c 803083E3 		orr	r3, r3, #128
+ 313 01a0 083085E5 		str	r3, [r5, #8]
+ 314              	.LBE86:
+ 315              	.LBE87:
+ 316              		.loc 1 762 0
+ 317 01a4 A900000A 		beq	.L38
+ 318              		.loc 1 765 0
+ 319 01a8 0010A0E3 		mov	r1, #0
+ 320 01ac 1C20A0E3 		mov	r2, #28
+ 321 01b0 FEFFFFEB 		bl	memset
+ 322              		.loc 1 767 0
+ 323 01b4 0C3095E5 		ldr	r3, [r5, #12]
+ 324 01b8 803083E3 		orr	r3, r3, #128
+ 325 01bc 0C3085E5 		str	r3, [r5, #12]
+ 326              		.loc 1 770 0
+ 327 01c0 0A00A0E3 		mov	r0, #10
+ 328 01c4 0010A0E3 		mov	r1, #0
+ 329 01c8 9BFFFFEB 		bl	sd_raw_send_command_r1
+ 330 01cc 000050E3 		cmp	r0, #0
+ 331              		.loc 1 772 0
+ 332 01d0 04309515 		ldrne	r3, [r5, #4]
+ 333 01d4 80308313 		orrne	r3, r3, #128
+ 334 01d8 04308515 		strne	r3, [r5, #4]
+ 335              		.loc 1 770 0
+ 336 01dc 9B00001A 		bne	.L38
+ 337              	.LBB88:
+ 338              	.LBB89:
+ 339              		.loc 1 310 0
+ 340 01e0 78329FE5 		ldr	r3, .L81+4
+ 341 01e4 FF10A0E3 		mov	r1, #255
+ 342              		.loc 1 311 0
+ 343 01e8 0320A0E1 		mov	r2, r3
+ 344              	.L71:
+ 345              		.loc 1 310 0
+ 346 01ec 081083E5 		str	r1, [r3, #8]
+ 347              	.L41:
+ 348              		.loc 1 311 0
+ 349 01f0 040093E5 		ldr	r0, [r3, #4]
+ 350 01f4 800010E3 		tst	r0, #128
+ 351 01f8 FCFFFF0A 		beq	.L41
+ 352              		.loc 1 313 0
+ 353 01fc 080092E5 		ldr	r0, [r2, #8]
+ 354              	.LBE89:
+ 355              	.LBE88:
+ 356              		.loc 1 775 0
+ 357 0200 FF0000E2 		and	r0, r0, #255
+ 358 0204 FE0050E3 		cmp	r0, #254
+ 359 0208 F7FFFF1A 		bne	.L71
+ 360              	.LBB90:
+ 361              	.LBB91:
+ 362              	.LBB92:
+ 363              		.loc 1 310 0
+ 364 020c 4C029FE5 		ldr	r0, .L81+4
+ 365              	.LBE92:
+ 366              	.LBE91:
+ 367              	.LBE90:
+ 368              		.loc 1 775 0
+ 369 0210 0410A0E1 		mov	r1, r4
+ 370 0214 60C0A0E3 		mov	ip, #96
+ 371 0218 0020A0E3 		mov	r2, #0
+ 372              	.LVL12:
+ 373              	.LBB95:
+ 374              	.LBB94:
+ 375              	.LBB93:
+ 376              		.loc 1 310 0
+ 377 021c FF50A0E3 		mov	r5, #255
+ 378              		.loc 1 311 0
+ 379 0220 00E0A0E1 		mov	lr, r0
+ 380              	.LVL13:
+ 381              	.L52:
+ 382              		.loc 1 310 0
+ 383 0224 085080E5 		str	r5, [r0, #8]
+ 384              	.L42:
+ 385              		.loc 1 311 0
+ 386 0228 043090E5 		ldr	r3, [r0, #4]
+ 387              	.LVL14:
+ 388 022c 800013E3 		tst	r3, #128
+ 389 0230 FCFFFF0A 		beq	.L42
+ 390              		.loc 1 313 0
+ 391 0234 08309EE5 		ldr	r3, [lr, #8]
+ 392 0238 FF3003E2 		and	r3, r3, #255
+ 393              	.LVL15:
+ 394              	.LBE93:
+ 395              	.LBE94:
+ 396              		.loc 1 781 0
+ 397 023c 0E0052E3 		cmp	r2, #14
+ 398 0240 02F19F97 		ldrls	pc, [pc, r2, asl #2]
+ 399 0244 220000EA 		b	.L43
+ 400              	.L51:
+ 401 0248 84020000 		.word	.L44
+ 402 024c 8C020000 		.word	.L45
+ 403 0250 8C020000 		.word	.L45
+ 404 0254 94020000 		.word	.L46
+ 405 0258 94020000 		.word	.L46
+ 406 025c 94020000 		.word	.L46
+ 407 0260 94020000 		.word	.L46
+ 408 0264 94020000 		.word	.L46
+ 409 0268 9C020000 		.word	.L47
+ 410 026c A4020000 		.word	.L48
+ 411 0270 A4020000 		.word	.L48
+ 412 0274 A4020000 		.word	.L48
+ 413 0278 A4020000 		.word	.L48
+ 414 027c B4020000 		.word	.L49
+ 415 0280 C0020000 		.word	.L50
+ 416              	.L44:
+ 417              		.loc 1 784 0
+ 418 0284 0030C4E5 		strb	r3, [r4, #0]
+ 419              		.loc 1 785 0
+ 420 0288 110000EA 		b	.L43
+ 421              	.L45:
+ 422              		.loc 1 788 0
+ 423 028c 0030C1E5 		strb	r3, [r1, #0]
+ 424              		.loc 1 789 0
+ 425 0290 0F0000EA 		b	.L43
+ 426              	.L46:
+ 427              		.loc 1 795 0
+ 428 0294 0130C1E5 		strb	r3, [r1, #1]
+ 429              		.loc 1 796 0
+ 430 0298 0D0000EA 		b	.L43
+ 431              	.L47:
+ 432              		.loc 1 798 0
+ 433 029c 0A30C4E5 		strb	r3, [r4, #10]
+ 434              		.loc 1 799 0
+ 435 02a0 0B0000EA 		b	.L43
+ 436              	.L48:
+ 437              		.loc 1 804 0
+ 438 02a4 0C6094E5 		ldr	r6, [r4, #12]
+ 439 02a8 133C86E1 		orr	r3, r6, r3, asl ip
+ 440              	.LVL16:
+ 441 02ac 0C3084E5 		str	r3, [r4, #12]
+ 442              		.loc 1 805 0
+ 443 02b0 070000EA 		b	.L43
+ 444              	.LVL17:
+ 445              	.L49:
+ 446              		.loc 1 807 0
+ 447 02b4 0332A0E1 		mov	r3, r3, asl #4
+ 448              	.LVL18:
+ 449 02b8 1030C4E5 		strb	r3, [r4, #16]
+ 450              		.loc 1 808 0
+ 451 02bc 040000EA 		b	.L43
+ 452              	.LVL19:
+ 453              	.L50:
+ 454              		.loc 1 810 0
+ 455 02c0 1070D4E5 		ldrb	r7, [r4, #16]	@ zero_extendqisi2
+ 456              		.loc 1 811 0
+ 457 02c4 0F6003E2 		and	r6, r3, #15
+ 458              		.loc 1 810 0
+ 459 02c8 233287E1 		orr	r3, r7, r3, lsr #4
+ 460              	.LVL20:
+ 461 02cc 1030C4E5 		strb	r3, [r4, #16]
+ 462              		.loc 1 811 0
+ 463 02d0 1160C4E5 		strb	r6, [r4, #17]
+ 464              	.LVL21:
+ 465              	.L43:
+ 466              	.LBE95:
+ 467              		.loc 1 777 0
+ 468 02d4 012082E2 		add	r2, r2, #1
+ 469              	.LVL22:
+ 470 02d8 FF2002E2 		and	r2, r2, #255
+ 471              	.LVL23:
+ 472 02dc 120052E3 		cmp	r2, #18
+ 473 02e0 011081E2 		add	r1, r1, #1
+ 474 02e4 08C04CE2 		sub	ip, ip, #8
+ 475 02e8 CDFFFF1A 		bne	.L52
+ 476              		.loc 1 820 0
+ 477 02ec 0900A0E3 		mov	r0, #9
+ 478 02f0 0010A0E3 		mov	r1, #0
+ 479 02f4 50FFFFEB 		bl	sd_raw_send_command_r1
+ 480              	.LVL24:
+ 481 02f8 000050E3 		cmp	r0, #0
+ 482              		.loc 1 822 0
+ 483 02fc 58319F15 		ldrne	r3, .L81
+ 484 0300 04209315 		ldrne	r2, [r3, #4]
+ 485 0304 80208213 		orrne	r2, r2, #128
+ 486 0308 04208315 		strne	r2, [r3, #4]
+ 487 030c 4F00001A 		bne	.L38
+ 488              	.L53:
+ 489              	.LBB96:
+ 490              	.LBB97:
+ 491              		.loc 1 310 0
+ 492 0310 48319FE5 		ldr	r3, .L81+4
+ 493 0314 FF10A0E3 		mov	r1, #255
+ 494              		.loc 1 311 0
+ 495 0318 0320A0E1 		mov	r2, r3
+ 496              	.L70:
+ 497              		.loc 1 310 0
+ 498 031c 081083E5 		str	r1, [r3, #8]
+ 499              	.L54:
+ 500              		.loc 1 311 0
+ 501 0320 040093E5 		ldr	r0, [r3, #4]
+ 502 0324 800010E3 		tst	r0, #128
+ 503 0328 FCFFFF0A 		beq	.L54
+ 504              		.loc 1 313 0
+ 505 032c 080092E5 		ldr	r0, [r2, #8]
+ 506              	.LBE97:
+ 507              	.LBE96:
+ 508              		.loc 1 825 0
+ 509 0330 FF0000E2 		and	r0, r0, #255
+ 510 0334 FE0050E3 		cmp	r0, #254
+ 511 0338 F7FFFF1A 		bne	.L70
+ 512              	.LBB98:
+ 513              	.LBB99:
+ 514              	.LBB101:
+ 515              		.loc 1 310 0
+ 516 033c 1C519FE5 		ldr	r5, .L81+4
+ 517              	.LBE101:
+ 518              	.LBE99:
+ 519              	.LBE98:
+ 520              		.loc 1 825 0
+ 521 0340 0020A0E3 		mov	r2, #0
+ 522              	.LVL25:
+ 523 0344 0210A0E1 		mov	r1, r2
+ 524              	.LVL26:
+ 525 0348 0200A0E1 		mov	r0, r2
+ 526              	.LVL27:
+ 527 034c 0260A0E1 		mov	r6, r2
+ 528              	.LVL28:
+ 529              	.LBB107:
+ 530              	.LBB104:
+ 531              	.LBB102:
+ 532              		.loc 1 310 0
+ 533 0350 FFA0A0E3 		mov	sl, #255
+ 534              		.loc 1 311 0
+ 535 0354 0580A0E1 		mov	r8, r5
+ 536              	.LBE102:
+ 537              	.LBE104:
+ 538              		.loc 1 861 0
+ 539 0358 01C0A0E3 		mov	ip, #1
+ 540              	.LVL29:
+ 541              	.L68:
+ 542              	.LBB105:
+ 543              	.LBB100:
+ 544              		.loc 1 310 0
+ 545 035c 08A085E5 		str	sl, [r5, #8]
+ 546              	.L55:
+ 547              		.loc 1 311 0
+ 548 0360 043095E5 		ldr	r3, [r5, #4]
+ 549              	.LVL30:
+ 550 0364 800013E3 		tst	r3, #128
+ 551 0368 FCFFFF0A 		beq	.L55
+ 552              		.loc 1 313 0
+ 553 036c 083098E5 		ldr	r3, [r8, #8]
+ 554              	.LBE100:
+ 555              	.LBE105:
+ 556              		.loc 1 830 0
+ 557 0370 057042E2 		sub	r7, r2, #5
+ 558              	.LBB106:
+ 559              	.LBB103:
+ 560              		.loc 1 313 0
+ 561 0374 FF3003E2 		and	r3, r3, #255
+ 562              	.LVL31:
+ 563              	.LBE103:
+ 564              	.LBE106:
+ 565              		.loc 1 830 0
+ 566 0378 090057E3 		cmp	r7, #9
+ 567 037c 07F19F97 		ldrls	pc, [pc, r7, asl #2]
+ 568 0380 280000EA 		b	.L56
+ 569              	.L64:
+ 570 0384 AC030000 		.word	.L57
+ 571 0388 B4030000 		.word	.L58
+ 572 038c C0030000 		.word	.L59
+ 573 0390 CC030000 		.word	.L60
+ 574 0394 E0030000 		.word	.L61
+ 575 0398 EC030000 		.word	.L62
+ 576 039c 28040000 		.word	.L56
+ 577 03a0 28040000 		.word	.L56
+ 578 03a4 28040000 		.word	.L56
+ 579 03a8 04040000 		.word	.L63
+ 580              	.L57:
+ 581              		.loc 1 833 0
+ 582 03ac 0F6003E2 		and	r6, r3, #15
+ 583              	.LVL32:
+ 584              		.loc 1 834 0
+ 585 03b0 1C0000EA 		b	.L56
+ 586              	.L58:
+ 587              		.loc 1 836 0
+ 588 03b4 033003E2 		and	r3, r3, #3
+ 589              	.LVL33:
+ 590 03b8 0314A0E1 		mov	r1, r3, asl #8
+ 591              	.LVL34:
+ 592              		.loc 1 837 0
+ 593 03bc 190000EA 		b	.L56
+ 594              	.LVL35:
+ 595              	.L59:
+ 596              		.loc 1 839 0
+ 597 03c0 031081E1 		orr	r1, r1, r3
+ 598              	.LVL36:
+ 599              		.loc 1 840 0
+ 600 03c4 0119A0E1 		mov	r1, r1, asl #18
+ 601              	.LVL37:
+ 602 03c8 020000EA 		b	.L80
+ 603              	.LVL38:
+ 604              	.L60:
+ 605              		.loc 1 843 0
+ 606 03cc 231381E1 		orr	r1, r1, r3, lsr #6
+ 607              	.LVL39:
+ 608              		.loc 1 844 0
+ 609 03d0 011081E2 		add	r1, r1, #1
+ 610              	.LVL40:
+ 611 03d4 0118A0E1 		mov	r1, r1, asl #16
+ 612              	.L80:
+ 613 03d8 2118A0E1 		mov	r1, r1, lsr #16
+ 614              	.LVL41:
+ 615              		.loc 1 845 0
+ 616 03dc 110000EA 		b	.L56
+ 617              	.L61:
+ 618              		.loc 1 847 0
+ 619 03e0 033003E2 		and	r3, r3, #3
+ 620              	.LVL42:
+ 621 03e4 8300A0E1 		mov	r0, r3, asl #1
+ 622              	.LVL43:
+ 623              		.loc 1 848 0
+ 624 03e8 0E0000EA 		b	.L56
+ 625              	.LVL44:
+ 626              	.L62:
+ 627              		.loc 1 850 0
+ 628 03ec A30380E1 		orr	r0, r0, r3, lsr #7
+ 629              	.LVL45:
+ 630              		.loc 1 852 0
+ 631 03f0 023086E2 		add	r3, r6, #2
+ 632              	.LVL46:
+ 633 03f4 003083E0 		add	r3, r3, r0
+ 634 03f8 1133A0E1 		mov	r3, r1, asl r3
+ 635 03fc 143084E5 		str	r3, [r4, #20]
+ 636              		.loc 1 854 0
+ 637 0400 080000EA 		b	.L56
+ 638              	.LVL47:
+ 639              	.L63:
+ 640              		.loc 1 856 0
+ 641 0404 400013E3 		tst	r3, #64
+ 642              		.loc 1 857 0
+ 643 0408 18C0C415 		strneb	ip, [r4, #24]
+ 644              		.loc 1 858 0
+ 645 040c 200013E3 		tst	r3, #32
+ 646              		.loc 1 859 0
+ 647 0410 19C0C415 		strneb	ip, [r4, #25]
+ 648              		.loc 1 860 0
+ 649 0414 100013E3 		tst	r3, #16
+ 650              		.loc 1 862 0
+ 651 0418 0C3003E2 		and	r3, r3, #12
+ 652              	.LVL48:
+ 653 041c 4331A0E1 		mov	r3, r3, asr #2
+ 654              		.loc 1 861 0
+ 655 0420 1AC0C415 		strneb	ip, [r4, #26]
+ 656              		.loc 1 862 0
+ 657 0424 1B30C4E5 		strb	r3, [r4, #27]
+ 658              	.LVL49:
+ 659              	.L56:
+ 660              	.LBE107:
+ 661              		.loc 1 826 0
+ 662 0428 012082E2 		add	r2, r2, #1
+ 663              	.LVL50:
+ 664 042c FF2002E2 		and	r2, r2, #255
+ 665              	.LVL51:
+ 666 0430 120052E3 		cmp	r2, #18
+ 667 0434 C8FFFF1A 		bne	.L68
+ 668              		.loc 1 867 0
+ 669 0438 1C309FE5 		ldr	r3, .L81
+ 670              	.LVL52:
+ 671 043c 042093E5 		ldr	r2, [r3, #4]
+ 672              	.LVL53:
+ 673 0440 802082E3 		orr	r2, r2, #128
+ 674 0444 042083E5 		str	r2, [r3, #4]
+ 675 0448 0100A0E3 		mov	r0, #1
+ 676              	.LVL54:
+ 677              		.loc 1 869 0
+ 678 044c 000000EA 		b	.L40
+ 679              	.LVL55:
+ 680              	.L38:
+ 681 0450 0000A0E3 		mov	r0, #0
+ 682              	.LVL56:
+ 683              	.L40:
+ 684              		.loc 1 870 0
+ 685 0454 F047BDE8 		ldmfd	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
+ 686 0458 1EFF2FE1 		bx	lr
+ 687              	.L82:
+ 688              		.align	2
+ 689              	.L81:
+ 690 045c 008002E0 		.word	-536707072
+ 691 0460 000002E0 		.word	-536739840
+ 692              	.LFE10:
+ 694              		.align	2
+ 695              		.global	sd_raw_write
+ 697              	sd_raw_write:
+ 698              	.LFB8:
+ 699              		.loc 1 621 0
+ 700              		@ Function supports interworking.
+ 701              		@ args = 0, pretend = 0, frame = 0
+ 702              		@ frame_needed = 0, uses_anonymous_args = 0
+ 703              	.LVL57:
+ 704 0464 F84F2DE9 		stmfd	sp!, {r3, r4, r5, r6, r7, r8, r9, sl, fp, lr}
+ 705              	.LCFI1:
+ 706              	.LBB108:
+ 707              	.LBB109:
+ 708              	.LBB111:
+ 709              		.loc 1 295 0
+ 710 0468 EC419FE5 		ldr	r4, .L112
+ 711              	.LBE111:
+ 712              	.LBE109:
+ 713              		.loc 1 642 0
+ 714 046c EC519FE5 		ldr	r5, .L112+4
+ 715              	.LBE108:
+ 716              		.loc 1 621 0
+ 717 0470 0090A0E1 		mov	r9, r0
+ 718 0474 01B0A0E1 		mov	fp, r1
+ 719 0478 0280A0E1 		mov	r8, r2
+ 720              		.loc 1 630 0
+ 721 047c 6F0000EA 		b	.L84
+ 722              	.LVL58:
+ 723              	.L101:
+ 724              	.LBB127:
+ 725              		.loc 1 634 0
+ 726 0480 89ABA0E1 		mov	sl, r9, asl #23
+ 727              	.LVL59:
+ 728 0484 AAABA0E1 		mov	sl, sl, lsr #23
+ 729              	.LVL60:
+ 730              		.loc 1 635 0
+ 731 0488 027C6AE2 		rsb	r7, sl, #512
+ 732              	.LVL61:
+ 733 048c 0778A0E1 		mov	r7, r7, asl #16
+ 734              		.loc 1 633 0
+ 735 0490 7F6FC9E3 		bic	r6, r9, #508
+ 736              		.loc 1 642 0
+ 737 0494 000095E5 		ldr	r0, [r5, #0]
+ 738              		.loc 1 633 0
+ 739 0498 0360C6E3 		bic	r6, r6, #3
+ 740              		.loc 1 635 0
+ 741 049c 2778A0E1 		mov	r7, r7, lsr #16
+ 742              	.LVL62:
+ 743 04a0 080057E1 		cmp	r7, r8
+ 744 04a4 0870A021 		movcs	r7, r8
+ 745              	.LVL63:
+ 746              		.loc 1 642 0
+ 747 04a8 000056E1 		cmp	r6, r0
+ 748 04ac 1500000A 		beq	.L85
+ 749              		.loc 1 645 0
+ 750 04b0 0430D5E5 		ldrb	r3, [r5, #4]	@ zero_extendqisi2
+ 751 04b4 000053E3 		cmp	r3, #0
+ 752 04b8 0400001A 		bne	.L86
+ 753              		.loc 1 647 0
+ 754 04bc A0119FE5 		ldr	r1, .L112+8
+ 755 04c0 022CA0E3 		mov	r2, #512
+ 756 04c4 FEFFFFEB 		bl	sd_raw_write
+ 757 04c8 000050E3 		cmp	r0, #0
+ 758 04cc 5F00000A 		beq	.L87
+ 759              	.LVL64:
+ 760              	.L86:
+ 761              		.loc 1 652 0
+ 762 04d0 90219FE5 		ldr	r2, .L112+12
+ 763 04d4 00305AE2 		subs	r3, sl, #0
+ 764 04d8 0130A013 		movne	r3, #1
+ 765 04dc 020057E1 		cmp	r7, r2
+ 766 04e0 01308393 		orrls	r3, r3, #1
+ 767 04e4 000053E3 		cmp	r3, #0
+ 768 04e8 0500000A 		beq	.L88
+ 769              		.loc 1 654 0
+ 770 04ec 0600A0E1 		mov	r0, r6
+ 771 04f0 6C119FE5 		ldr	r1, .L112+8
+ 772 04f4 012082E2 		add	r2, r2, #1
+ 773 04f8 FEFFFFEB 		bl	sd_raw_read
+ 774 04fc 000050E3 		cmp	r0, #0
+ 775 0500 5200000A 		beq	.L87
+ 776              	.LVL65:
+ 777              	.L88:
+ 778              		.loc 1 657 0
+ 779 0504 006085E5 		str	r6, [r5, #0]
+ 780              	.LVL66:
+ 781              	.L85:
+ 782              		.loc 1 660 0
+ 783 0508 54319FE5 		ldr	r3, .L112+8
+ 784 050c 03005BE1 		cmp	fp, r3
+ 785 0510 0700000A 		beq	.L89
+ 786              		.loc 1 662 0
+ 787 0514 0A0083E0 		add	r0, r3, sl
+ 788 0518 0B10A0E1 		mov	r1, fp
+ 789 051c 0720A0E1 		mov	r2, r7
+ 790 0520 FEFFFFEB 		bl	memcpy
+ 791              		.loc 1 665 0
+ 792 0524 0030A0E3 		mov	r3, #0
+ 793              		.loc 1 667 0
+ 794 0528 070058E1 		cmp	r8, r7
+ 795              		.loc 1 665 0
+ 796 052c 0430C5E5 		strb	r3, [r5, #4]
+ 797              		.loc 1 667 0
+ 798 0530 4400000A 		beq	.L90
+ 799              	.LVL67:
+ 800              	.L89:
+ 801              		.loc 1 675 0
+ 802 0534 30219FE5 		ldr	r2, .L112+16
+ 803 0538 0C3092E5 		ldr	r3, [r2, #12]
+ 804 053c 803083E3 		orr	r3, r3, #128
+ 805 0540 0C3082E5 		str	r3, [r2, #12]
+ 806              		.loc 1 678 0
+ 807 0544 0610A0E1 		mov	r1, r6
+ 808 0548 1800A0E3 		mov	r0, #24
+ 809 054c BAFEFFEB 		bl	sd_raw_send_command_r1
+ 810 0550 000050E3 		cmp	r0, #0
+ 811              		.loc 1 675 0
+ 812 0554 10319FE5 		ldr	r3, .L112+16
+ 813              		.loc 1 678 0
+ 814              		.loc 1 680 0
+ 815 0558 04209315 		ldrne	r2, [r3, #4]
+ 816 055c 80208213 		orrne	r2, r2, #128
+ 817 0560 04208315 		strne	r2, [r3, #4]
+ 818 0564 3900001A 		bne	.L87
+ 819              	.L91:
+ 820              	.LBB113:
+ 821              	.LBB110:
+ 822              		.loc 1 295 0
+ 823 0568 FE30A0E3 		mov	r3, #254
+ 824 056c 083084E5 		str	r3, [r4, #8]
+ 825              	.L93:
+ 826              		.loc 1 297 0
+ 827 0570 043094E5 		ldr	r3, [r4, #4]
+ 828 0574 800013E3 		tst	r3, #128
+ 829 0578 FCFFFF0A 		beq	.L93
+ 830              	.LBE110:
+ 831              	.LBE113:
+ 832              	.LBB114:
+ 833              	.LBB115:
+ 834              		.loc 1 295 0
+ 835 057c E0209FE5 		ldr	r2, .L112+8
+ 836              	.LBE115:
+ 837              	.LBE114:
+ 838              	.LBB117:
+ 839              	.LBB112:
+ 840              		.loc 1 297 0
+ 841 0580 0030A0E3 		mov	r3, #0
+ 842              	.L95:
+ 843              	.LBE112:
+ 844              	.LBE117:
+ 845              	.LBB118:
+ 846              	.LBB116:
+ 847              		.loc 1 295 0
+ 848 0584 0310D2E7 		ldrb	r1, [r2, r3]	@ zero_extendqisi2
+ 849 0588 081084E5 		str	r1, [r4, #8]
+ 850              	.L94:
+ 851              		.loc 1 297 0
+ 852 058c 041094E5 		ldr	r1, [r4, #4]
+ 853 0590 800011E3 		tst	r1, #128
+ 854 0594 FCFFFF0A 		beq	.L94
+ 855 0598 013083E2 		add	r3, r3, #1
+ 856              	.LBE116:
+ 857              	.LBE118:
+ 858              		.loc 1 690 0
+ 859 059c 020C53E3 		cmp	r3, #512
+ 860 05a0 F7FFFF1A 		bne	.L95
+ 861              	.LBB119:
+ 862              	.LBB120:
+ 863              		.loc 1 295 0
+ 864 05a4 B0309FE5 		ldr	r3, .L112
+ 865 05a8 FF20A0E3 		mov	r2, #255
+ 866 05ac 082083E5 		str	r2, [r3, #8]
+ 867              	.L96:
+ 868              		.loc 1 297 0
+ 869 05b0 043094E5 		ldr	r3, [r4, #4]
+ 870 05b4 800013E3 		tst	r3, #128
+ 871 05b8 FCFFFF0A 		beq	.L96
+ 872              	.LBE120:
+ 873              	.LBE119:
+ 874              	.LBB121:
+ 875              	.LBB122:
+ 876              		.loc 1 295 0
+ 877 05bc 98309FE5 		ldr	r3, .L112
+ 878 05c0 FF20A0E3 		mov	r2, #255
+ 879 05c4 082083E5 		str	r2, [r3, #8]
+ 880              	.L97:
+ 881              		.loc 1 297 0
+ 882 05c8 043094E5 		ldr	r3, [r4, #4]
+ 883 05cc 800013E3 		tst	r3, #128
+ 884 05d0 FCFFFF0A 		beq	.L97
+ 885              	.L103:
+ 886              	.LBE122:
+ 887              	.LBE121:
+ 888              	.LBB123:
+ 889              	.LBB124:
+ 890              		.loc 1 310 0
+ 891 05d4 FF30A0E3 		mov	r3, #255
+ 892 05d8 083084E5 		str	r3, [r4, #8]
+ 893              	.L98:
+ 894              		.loc 1 311 0
+ 895 05dc 043094E5 		ldr	r3, [r4, #4]
+ 896 05e0 800013E3 		tst	r3, #128
+ 897 05e4 FCFFFF0A 		beq	.L98
+ 898              		.loc 1 313 0
+ 899 05e8 6C209FE5 		ldr	r2, .L112
+ 900 05ec 083092E5 		ldr	r3, [r2, #8]
+ 901              	.LBE124:
+ 902              	.LBE123:
+ 903              		.loc 1 698 0
+ 904 05f0 FF3003E2 		and	r3, r3, #255
+ 905 05f4 FF0053E3 		cmp	r3, #255
+ 906 05f8 F5FFFF1A 		bne	.L103
+ 907              	.LBB125:
+ 908              	.LBB126:
+ 909              		.loc 1 310 0
+ 910 05fc 083082E5 		str	r3, [r2, #8]
+ 911              	.L100:
+ 912              		.loc 1 311 0
+ 913 0600 043094E5 		ldr	r3, [r4, #4]
+ 914 0604 800013E3 		tst	r3, #128
+ 915 0608 FCFFFF0A 		beq	.L100
+ 916              		.loc 1 313 0
+ 917 060c 48209FE5 		ldr	r2, .L112
+ 918 0610 083092E5 		ldr	r3, [r2, #8]
+ 919              	.LBE126:
+ 920              	.LBE125:
+ 921              		.loc 1 702 0
+ 922 0614 022982E2 		add	r2, r2, #32768
+ 923 0618 043092E5 		ldr	r3, [r2, #4]
+ 924 061c 803083E3 		orr	r3, r3, #128
+ 925 0620 043082E5 		str	r3, [r2, #4]
+ 926              		.loc 1 704 0
+ 927 0624 088067E0 		rsb	r8, r7, r8
+ 928              	.LVL68:
+ 929              		.loc 1 708 0
+ 930 0628 0130A0E3 		mov	r3, #1
+ 931              		.loc 1 704 0
+ 932 062c 0888A0E1 		mov	r8, r8, asl #16
+ 933              		.loc 1 708 0
+ 934 0630 0430C5E5 		strb	r3, [r5, #4]
+ 935              		.loc 1 705 0
+ 936 0634 079089E0 		add	r9, r9, r7
+ 937              	.LVL69:
+ 938              		.loc 1 672 0
+ 939 0638 07B08BE0 		add	fp, fp, r7
+ 940              	.LVL70:
+ 941              		.loc 1 704 0
+ 942 063c 2888A0E1 		mov	r8, r8, lsr #16
+ 943              	.LVL71:
+ 944              	.L84:
+ 945              	.LBE127:
+ 946              		.loc 1 630 0
+ 947 0640 000058E3 		cmp	r8, #0
+ 948 0644 8DFFFF1A 		bne	.L101
+ 949              	.L90:
+ 950 0648 0100A0E3 		mov	r0, #1
+ 951 064c 000000EA 		b	.L92
+ 952              	.LVL72:
+ 953              	.L87:
+ 954 0650 0000A0E3 		mov	r0, #0
+ 955              	.LVL73:
+ 956              	.L92:
+ 957              		.loc 1 716 0
+ 958 0654 F84FBDE8 		ldmfd	sp!, {r3, r4, r5, r6, r7, r8, r9, sl, fp, lr}
+ 959 0658 1EFF2FE1 		bx	lr
+ 960              	.L113:
+ 961              		.align	2
+ 962              	.L112:
+ 963 065c 000002E0 		.word	-536739840
+ 964 0660 00000000 		.word	.LANCHOR0
+ 965 0664 08000000 		.word	.LANCHOR0+8
+ 966 0668 FF010000 		.word	511
+ 967 066c 008002E0 		.word	-536707072
+ 968              	.LFE8:
+ 970              		.align	2
+ 971              		.global	sd_raw_read
+ 973              	sd_raw_read:
+ 974              	.LFB6:
+ 975              		.loc 1 401 0
+ 976              		@ Function supports interworking.
+ 977              		@ args = 0, pretend = 0, frame = 8
+ 978              		@ frame_needed = 0, uses_anonymous_args = 0
+ 979              	.LVL74:
+ 980 0670 F74F2DE9 		stmfd	sp!, {r0, r1, r2, r4, r5, r6, r7, r8, r9, sl, fp, lr}
+ 981              	.LCFI2:
+ 982              	.LVL75:
+ 983              	.LBB128:
+ 984              	.LBB130:
+ 985              	.LBB132:
+ 986              		.loc 1 310 0
+ 987 0674 B0419FE5 		ldr	r4, .L138
+ 988              	.LBE132:
+ 989              	.LBE130:
+ 990              	.LBE128:
+ 991              		.loc 1 401 0
+ 992 0678 00A0A0E1 		mov	sl, r0
+ 993              	.LVL76:
+ 994 067c 0190A0E1 		mov	r9, r1
+ 995              	.LVL77:
+ 996 0680 04208DE5 		str	r2, [sp, #4]
+ 997              	.LVL78:
+ 998              	.LBB151:
+ 999              	.LBB129:
+ 1000              	.LBB131:
+ 1001              		.loc 1 311 0
+ 1002 0684 0450A0E1 		mov	r5, r4
+ 1003              	.LBE131:
+ 1004              	.LBE129:
+ 1005              	.LBE151:
+ 1006              		.loc 1 405 0
+ 1007 0688 610000EA 		b	.L115
+ 1008              	.LVL79:
+ 1009              	.L127:
+ 1010              		.loc 1 409 0
+ 1011 068c 8A7BA0E1 		mov	r7, sl, asl #23
+ 1012              	.LVL80:
+ 1013 0690 A77BA0E1 		mov	r7, r7, lsr #23
+ 1014              	.LVL81:
+ 1015              		.loc 1 416 0
+ 1016 0694 94119FE5 		ldr	r1, .L138+4
+ 1017              		.loc 1 410 0
+ 1018 0698 028C67E2 		rsb	r8, r7, #512
+ 1019              	.LVL82:
+ 1020 069c 0888A0E1 		mov	r8, r8, asl #16
+ 1021              		.loc 1 408 0
+ 1022 06a0 7F6FCAE3 		bic	r6, sl, #508
+ 1023              		.loc 1 416 0
+ 1024 06a4 000091E5 		ldr	r0, [r1, #0]
+ 1025              		.loc 1 410 0
+ 1026 06a8 04209DE5 		ldr	r2, [sp, #4]
+ 1027              		.loc 1 408 0
+ 1028 06ac 0360C6E3 		bic	r6, r6, #3
+ 1029              		.loc 1 410 0
+ 1030 06b0 2888A0E1 		mov	r8, r8, lsr #16
+ 1031              	.LVL83:
+ 1032 06b4 020058E1 		cmp	r8, r2
+ 1033 06b8 0280A021 		movcs	r8, r2
+ 1034              	.LVL84:
+ 1035              		.loc 1 416 0
+ 1036 06bc 000056E1 		cmp	r6, r0
+ 1037 06c0 4800000A 		beq	.L116
+ 1038              	.LBB152:
+ 1039              		.loc 1 420 0
+ 1040 06c4 0430D1E5 		ldrb	r3, [r1, #4]	@ zero_extendqisi2
+ 1041 06c8 000053E3 		cmp	r3, #0
+ 1042 06cc 0400001A 		bne	.L117
+ 1043              		.loc 1 422 0
+ 1044 06d0 5C119FE5 		ldr	r1, .L138+8
+ 1045 06d4 022CA0E3 		mov	r2, #512
+ 1046 06d8 FEFFFFEB 		bl	sd_raw_write
+ 1047 06dc 000050E3 		cmp	r0, #0
+ 1048 06e0 4F00000A 		beq	.L118
+ 1049              	.L117:
+ 1050              		.loc 1 428 0
+ 1051 06e4 4CB19FE5 		ldr	fp, .L138+12
+ 1052 06e8 0C309BE5 		ldr	r3, [fp, #12]
+ 1053 06ec 803083E3 		orr	r3, r3, #128
+ 1054              		.loc 1 431 0
+ 1055 06f0 1100A0E3 		mov	r0, #17
+ 1056 06f4 0610A0E1 		mov	r1, r6
+ 1057              		.loc 1 428 0
+ 1058 06f8 0C308BE5 		str	r3, [fp, #12]
+ 1059              		.loc 1 431 0
+ 1060 06fc 4EFEFFEB 		bl	sd_raw_send_command_r1
+ 1061 0700 000050E3 		cmp	r0, #0
+ 1062              		.loc 1 433 0
+ 1063 0704 04309B15 		ldrne	r3, [fp, #4]
+ 1064 0708 80308313 		orrne	r3, r3, #128
+ 1065 070c 04308B15 		strne	r3, [fp, #4]
+ 1066 0710 0000A013 		movne	r0, #0
+ 1067              		.loc 1 434 0
+ 1068 0714 4200001A 		bne	.L118
+ 1069              	.L129:
+ 1070              	.LBB134:
+ 1071              	.LBB133:
+ 1072              		.loc 1 310 0
+ 1073 0718 FF30A0E3 		mov	r3, #255
+ 1074 071c 083084E5 		str	r3, [r4, #8]
+ 1075              	.L120:
+ 1076              		.loc 1 311 0
+ 1077 0720 043094E5 		ldr	r3, [r4, #4]
+ 1078 0724 800013E3 		tst	r3, #128
+ 1079 0728 FCFFFF0A 		beq	.L120
+ 1080              		.loc 1 313 0
+ 1081 072c 083095E5 		ldr	r3, [r5, #8]
+ 1082              	.LBE133:
+ 1083              	.LBE134:
+ 1084              		.loc 1 438 0
+ 1085 0730 FF3003E2 		and	r3, r3, #255
+ 1086 0734 FE0053E3 		cmp	r3, #254
+ 1087 0738 F6FFFF1A 		bne	.L129
+ 1088 073c 0030A0E3 		mov	r3, #0
+ 1089              	.L122:
+ 1090              	.LBB135:
+ 1091              	.LBB136:
+ 1092              		.loc 1 310 0
+ 1093 0740 FF10A0E3 		mov	r1, #255
+ 1094 0744 081084E5 		str	r1, [r4, #8]
+ 1095              	.L121:
+ 1096              		.loc 1 311 0
+ 1097 0748 042094E5 		ldr	r2, [r4, #4]
+ 1098 074c 800012E3 		tst	r2, #128
+ 1099 0750 FCFFFF0A 		beq	.L121
+ 1100              		.loc 1 313 0
+ 1101 0754 082095E5 		ldr	r2, [r5, #8]
+ 1102              	.LBE136:
+ 1103              	.LBE135:
+ 1104              		.loc 1 454 0
+ 1105 0758 D4109FE5 		ldr	r1, .L138+8
+ 1106 075c 0320C1E7 		strb	r2, [r1, r3]
+ 1107 0760 013083E2 		add	r3, r3, #1
+ 1108              		.loc 1 453 0
+ 1109 0764 020C53E3 		cmp	r3, #512
+ 1110 0768 F4FFFF1A 		bne	.L122
+ 1111              		.loc 1 455 0
+ 1112 076c BC309FE5 		ldr	r3, .L138+4
+ 1113              		.loc 1 457 0
+ 1114 0770 0820A0E1 		mov	r2, r8
+ 1115              		.loc 1 455 0
+ 1116 0774 006083E5 		str	r6, [r3, #0]
+ 1117              		.loc 1 457 0
+ 1118 0778 071081E0 		add	r1, r1, r7
+ 1119 077c 0900A0E1 		mov	r0, r9
+ 1120 0780 FEFFFFEB 		bl	memcpy
+ 1121              	.LBB137:
+ 1122              	.LBB138:
+ 1123              		.loc 1 310 0
+ 1124 0784 A0209FE5 		ldr	r2, .L138
+ 1125 0788 FF30A0E3 		mov	r3, #255
+ 1126 078c 083082E5 		str	r3, [r2, #8]
+ 1127              	.L123:
+ 1128              		.loc 1 311 0
+ 1129 0790 043094E5 		ldr	r3, [r4, #4]
+ 1130 0794 800013E3 		tst	r3, #128
+ 1131 0798 FCFFFF0A 		beq	.L123
+ 1132              	.LBE138:
+ 1133              	.LBE137:
+ 1134              	.LBB140:
+ 1135              	.LBB142:
+ 1136              		.loc 1 310 0
+ 1137 079c FF10A0E3 		mov	r1, #255
+ 1138              	.LBE142:
+ 1139              	.LBE140:
+ 1140              	.LBB144:
+ 1141              	.LBB139:
+ 1142              		.loc 1 313 0
+ 1143 07a0 083095E5 		ldr	r3, [r5, #8]
+ 1144              	.LBE139:
+ 1145              	.LBE144:
+ 1146              	.LBB145:
+ 1147              	.LBB141:
+ 1148              		.loc 1 310 0
+ 1149 07a4 081085E5 		str	r1, [r5, #8]
+ 1150              	.L124:
+ 1151              		.loc 1 311 0
+ 1152 07a8 043094E5 		ldr	r3, [r4, #4]
+ 1153 07ac 800013E3 		tst	r3, #128
+ 1154 07b0 FCFFFF0A 		beq	.L124
+ 1155              	.LBE141:
+ 1156              	.LBE145:
+ 1157              		.loc 1 466 0
+ 1158 07b4 7C309FE5 		ldr	r3, .L138+12
+ 1159              	.LBB146:
+ 1160              	.LBB143:
+ 1161              		.loc 1 313 0
+ 1162 07b8 082095E5 		ldr	r2, [r5, #8]
+ 1163              	.LBE143:
+ 1164              	.LBE146:
+ 1165              		.loc 1 466 0
+ 1166 07bc 042093E5 		ldr	r2, [r3, #4]
+ 1167 07c0 802082E3 		orr	r2, r2, #128
+ 1168 07c4 042083E5 		str	r2, [r3, #4]
+ 1169              	.LBB147:
+ 1170              	.LBB148:
+ 1171              		.loc 1 310 0
+ 1172 07c8 FF20A0E3 		mov	r2, #255
+ 1173 07cc 082085E5 		str	r2, [r5, #8]
+ 1174              	.L125:
+ 1175              		.loc 1 311 0
+ 1176 07d0 043094E5 		ldr	r3, [r4, #4]
+ 1177 07d4 800013E3 		tst	r3, #128
+ 1178 07d8 FCFFFF0A 		beq	.L125
+ 1179              	.LBE148:
+ 1180              	.LBE147:
+ 1181              		.loc 1 458 0
+ 1182 07dc 089089E0 		add	r9, r9, r8
+ 1183              	.LVL85:
+ 1184              	.LBB150:
+ 1185              	.LBB149:
+ 1186              		.loc 1 313 0
+ 1187 07e0 083095E5 		ldr	r3, [r5, #8]
+ 1188 07e4 040000EA 		b	.L126
+ 1189              	.L116:
+ 1190              	.LBE149:
+ 1191              	.LBE150:
+ 1192              	.LBE152:
+ 1193              		.loc 1 475 0
+ 1194 07e8 44309FE5 		ldr	r3, .L138+8
+ 1195 07ec 0900A0E1 		mov	r0, r9
+ 1196 07f0 071083E0 		add	r1, r3, r7
+ 1197 07f4 0820A0E1 		mov	r2, r8
+ 1198 07f8 FEFFFFEB 		bl	memcpy
+ 1199              	.L126:
+ 1200              		.loc 1 479 0
+ 1201 07fc 04109DE5 		ldr	r1, [sp, #4]
+ 1202 0800 013068E0 		rsb	r3, r8, r1
+ 1203 0804 0338A0E1 		mov	r3, r3, asl #16
+ 1204 0808 2338A0E1 		mov	r3, r3, lsr #16
+ 1205 080c 04308DE5 		str	r3, [sp, #4]
+ 1206              		.loc 1 480 0
+ 1207 0810 08A08AE0 		add	sl, sl, r8
+ 1208              	.LVL86:
+ 1209              	.L115:
+ 1210              		.loc 1 405 0
+ 1211 0814 04209DE5 		ldr	r2, [sp, #4]
+ 1212              	.LVL87:
+ 1213 0818 000052E3 		cmp	r2, #0
+ 1214 081c 9AFFFF1A 		bne	.L127
+ 1215 0820 0100A0E3 		mov	r0, #1
+ 1216              	.L118:
+ 1217              		.loc 1 484 0
+ 1218 0824 FE4FBDE8 		ldmfd	sp!, {r1, r2, r3, r4, r5, r6, r7, r8, r9, sl, fp, lr}
+ 1219 0828 1EFF2FE1 		bx	lr
+ 1220              	.L139:
+ 1221              		.align	2
+ 1222              	.L138:
+ 1223 082c 000002E0 		.word	-536739840
+ 1224 0830 00000000 		.word	.LANCHOR0
+ 1225 0834 08000000 		.word	.LANCHOR0+8
+ 1226 0838 008002E0 		.word	-536707072
+ 1227              	.LFE6:
+ 1229              		.align	2
+ 1230              		.global	sd_raw_read_interval
+ 1232              	sd_raw_read_interval:
+ 1233              	.LFB7:
+ 1234              		.loc 1 511 0
+ 1235              		@ Function supports interworking.
+ 1236              		@ args = 8, pretend = 0, frame = 0
+ 1237              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1238              	.LVL88:
+ 1239 083c F0472DE9 		stmfd	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
+ 1240              	.LCFI3:
+ 1241              		.loc 1 512 0
+ 1242 0840 000051E3 		cmp	r1, #0
+ 1243 0844 00005213 		cmpne	r2, #0
+ 1244 0848 0240A0E1 		mov	r4, r2
+ 1245 084c 0160A0E1 		mov	r6, r1
+ 1246              		.loc 1 511 0
+ 1247 0850 0050A0E1 		mov	r5, r0
+ 1248 0854 20808DE2 		add	r8, sp, #32
+ 1249 0858 000398E8 		ldmia	r8, {r8, r9}	@ phole ldm
+ 1250              		.loc 1 512 0
+ 1251 085c 2200000A 		beq	.L141
+ 1252              	.LVL89:
+ 1253 0860 020053E1 		cmp	r3, r2
+ 1254 0864 0020A023 		movcs	r2, #0
+ 1255 0868 0120A033 		movcc	r2, #1
+ 1256 086c 000058E3 		cmp	r8, #0
+ 1257 0870 01208203 		orreq	r2, r2, #1
+ 1258 0874 000052E3 		cmp	r2, #0
+ 1259 0878 1B00001A 		bne	.L141
+ 1260              		.loc 1 510 0
+ 1261 087c 037064E0 		rsb	r7, r4, r3
+ 1262 0880 00A064E2 		rsb	sl, r4, #0
+ 1263 0884 0AA8A0E1 		mov	sl, sl, asl #16
+ 1264 0888 0778A0E1 		mov	r7, r7, asl #16
+ 1265 088c 2AA8A0E1 		mov	sl, sl, lsr #16
+ 1266 0890 2778A0E1 		mov	r7, r7, lsr #16
+ 1267              	.L143:
+ 1268              		.loc 1 521 0
+ 1269 0894 0610A0E1 		mov	r1, r6
+ 1270 0898 0420A0E1 		mov	r2, r4
+ 1271 089c 0500A0E1 		mov	r0, r5
+ 1272 08a0 FEFFFFEB 		bl	sd_raw_read
+ 1273              	.LVL90:
+ 1274 08a4 000050E3 		cmp	r0, #0
+ 1275              		.loc 1 523 0
+ 1276 08a8 0510A0E1 		mov	r1, r5
+ 1277 08ac 0920A0E1 		mov	r2, r9
+ 1278 08b0 0600A0E1 		mov	r0, r6
+ 1279              		.loc 1 521 0
+ 1280 08b4 0C00000A 		beq	.L141
+ 1281              		.loc 1 523 0
+ 1282 08b8 0FE0A0E1 		mov	lr, pc
+ 1283 08bc 18FF2FE1 		bx	r8
+ 1284 08c0 0A7087E0 		add	r7, r7, sl
+ 1285 08c4 0778A0E1 		mov	r7, r7, asl #16
+ 1286 08c8 2778A0E1 		mov	r7, r7, lsr #16
+ 1287              		.loc 1 516 0
+ 1288 08cc 043087E0 		add	r3, r7, r4
+ 1289              		.loc 1 523 0
+ 1290 08d0 000050E3 		cmp	r0, #0
+ 1291              		.loc 1 516 0
+ 1292 08d4 0338A0E1 		mov	r3, r3, asl #16
+ 1293              		.loc 1 523 0
+ 1294 08d8 0500000A 		beq	.L142
+ 1295              		.loc 1 516 0
+ 1296 08dc 230854E1 		cmp	r4, r3, lsr #16
+ 1297 08e0 0300008A 		bhi	.L142
+ 1298 08e4 045085E0 		add	r5, r5, r4
+ 1299 08e8 E9FFFFEA 		b	.L143
+ 1300              	.LVL91:
+ 1301              	.L141:
+ 1302 08ec 0000A0E3 		mov	r0, #0
+ 1303 08f0 000000EA 		b	.L144
+ 1304              	.LVL92:
+ 1305              	.L142:
+ 1306 08f4 0100A0E3 		mov	r0, #1
+ 1307              	.LVL93:
+ 1308              	.L144:
+ 1309              		.loc 1 604 0
+ 1310 08f8 F047BDE8 		ldmfd	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
+ 1311 08fc 1EFF2FE1 		bx	lr
+ 1312              	.LFE7:
+ 1314              		.align	2
+ 1315              		.global	sd_raw_sync
+ 1317              	sd_raw_sync:
+ 1318              	.LFB9:
+ 1319              		.loc 1 731 0
+ 1320              		@ Function supports interworking.
+ 1321              		@ args = 0, pretend = 0, frame = 0
+ 1322              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1323 0900 10402DE9 		stmfd	sp!, {r4, lr}
+ 1324              	.LCFI4:
+ 1325              		.loc 1 734 0
+ 1326 0904 28109FE5 		ldr	r1, .L150
+ 1327 0908 0430D1E5 		ldrb	r3, [r1, #4]	@ zero_extendqisi2
+ 1328 090c 000053E3 		cmp	r3, #0
+ 1329 0910 0100A013 		movne	r0, #1
+ 1330 0914 0400001A 		bne	.L148
+ 1331              		.loc 1 736 0
+ 1332 0918 080091E4 		ldr	r0, [r1], #8
+ 1333 091c 022CA0E3 		mov	r2, #512
+ 1334 0920 FEFFFFEB 		bl	sd_raw_write
+ 1335 0924 000050E2 		subs	r0, r0, #0
+ 1336 0928 0100A013 		movne	r0, #1
+ 1337              	.L148:
+ 1338              		.loc 1 743 0
+ 1339 092c 1040BDE8 		ldmfd	sp!, {r4, lr}
+ 1340 0930 1EFF2FE1 		bx	lr
+ 1341              	.L151:
+ 1342              		.align	2
+ 1343              	.L150:
+ 1344 0934 00000000 		.word	.LANCHOR0
+ 1345              	.LFE9:
+ 1347              		.align	2
+ 1348              		.global	sd_raw_init
+ 1350              	sd_raw_init:
+ 1351              	.LFB0:
+ 1352              		.loc 1 159 0
+ 1353              		@ Function supports interworking.
+ 1354              		@ args = 0, pretend = 0, frame = 0
+ 1355              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1356              		.loc 1 165 0
+ 1357 0938 14329FE5 		ldr	r3, .L170
+ 1358 093c 082093E5 		ldr	r2, [r3, #8]
+ 1359 0940 802082E3 		orr	r2, r2, #128
+ 1360 0944 082083E5 		str	r2, [r3, #8]
+ 1361              		.loc 1 166 0
+ 1362 0948 08229FE5 		ldr	r2, .L170+4
+ 1363 094c 001092E5 		ldr	r1, [r2, #0]
+ 1364 0950 011A81E3 		orr	r1, r1, #4096
+ 1365 0954 001082E5 		str	r1, [r2, #0]
+ 1366              		.loc 1 167 0
+ 1367 0958 001092E5 		ldr	r1, [r2, #0]
+ 1368 095c 011B81E3 		orr	r1, r1, #1024
+ 1369 0960 001082E5 		str	r1, [r2, #0]
+ 1370              		.loc 1 168 0
+ 1371 0964 001092E5 		ldr	r1, [r2, #0]
+ 1372 0968 011C81E3 		orr	r1, r1, #256
+ 1373 096c 001082E5 		str	r1, [r2, #0]
+ 1374              		.loc 1 170 0
+ 1375 0970 041093E5 		ldr	r1, [r3, #4]
+ 1376 0974 801081E3 		orr	r1, r1, #128
+ 1377 0978 041083E5 		str	r1, [r3, #4]
+ 1378              		.loc 1 173 0
+ 1379 097c 032942E2 		sub	r2, r2, #49152
+ 1380 0980 9610A0E3 		mov	r1, #150
+ 1381 0984 0C1082E5 		str	r1, [r2, #12]
+ 1382              		.loc 1 174 0
+ 1383 0988 3810A0E3 		mov	r1, #56
+ 1384 098c 001082E5 		str	r1, [r2, #0]
+ 1385              	.LBB153:
+ 1386              	.LBB155:
+ 1387              		.loc 1 268 0
+ 1388 0990 081093E5 		ldr	r1, [r3, #8]
+ 1389 0994 8010C1E3 		bic	r1, r1, #128
+ 1390 0998 081083E5 		str	r1, [r3, #8]
+ 1391              	.LBE155:
+ 1392              	.LBE153:
+ 1393              		.loc 1 159 0
+ 1394 099c 70402DE9 		stmfd	sp!, {r4, r5, r6, lr}
+ 1395              	.LCFI5:
+ 1396              	.LBB158:
+ 1397              	.LBB156:
+ 1398              		.loc 1 270 0
+ 1399 09a0 004093E5 		ldr	r4, [r3, #0]
+ 1400              		.loc 1 271 0
+ 1401 09a4 081093E5 		ldr	r1, [r3, #8]
+ 1402              	.LBE156:
+ 1403              	.LBE158:
+ 1404              		.loc 1 179 0
+ 1405 09a8 804004E2 		and	r4, r4, #128
+ 1406              	.LBB159:
+ 1407              	.LBB154:
+ 1408              		.loc 1 271 0
+ 1409 09ac 801081E3 		orr	r1, r1, #128
+ 1410              	.LBE154:
+ 1411              	.LBE159:
+ 1412              		.loc 1 179 0
+ 1413 09b0 A443B0E1 		movs	r4, r4, lsr #7
+ 1414              	.LBB160:
+ 1415              	.LBB157:
+ 1416              		.loc 1 271 0
+ 1417 09b4 081083E5 		str	r1, [r3, #8]
+ 1418              	.LBE157:
+ 1419              	.LBE160:
+ 1420              		.loc 1 181 0
+ 1421 09b8 9C019F05 		ldreq	r0, .L170+8
+ 1422              		.loc 1 179 0
+ 1423 09bc 4B00000A 		beq	.L168
+ 1424              		.loc 1 184 0
+ 1425 09c0 081093E5 		ldr	r1, [r3, #8]
+ 1426 09c4 801081E3 		orr	r1, r1, #128
+ 1427 09c8 081083E5 		str	r1, [r3, #8]
+ 1428              		.loc 1 185 0
+ 1429 09cc 041093E5 		ldr	r1, [r3, #4]
+ 1430 09d0 801081E3 		orr	r1, r1, #128
+ 1431 09d4 041083E5 		str	r1, [r3, #4]
+ 1432              	.LBB161:
+ 1433              	.LBB163:
+ 1434              		.loc 1 310 0
+ 1435 09d8 0230A0E1 		mov	r3, r2
+ 1436 09dc FF00A0E3 		mov	r0, #255
+ 1437              	.LBE163:
+ 1438              	.LBE161:
+ 1439              		.loc 1 185 0
+ 1440 09e0 0020A0E3 		mov	r2, #0
+ 1441              	.LVL94:
+ 1442              	.LBB165:
+ 1443              	.LBB162:
+ 1444              		.loc 1 311 0
+ 1445 09e4 0310A0E1 		mov	r1, r3
+ 1446              	.L156:
+ 1447              		.loc 1 310 0
+ 1448 09e8 080083E5 		str	r0, [r3, #8]
+ 1449              	.L155:
+ 1450              		.loc 1 311 0
+ 1451 09ec 04C093E5 		ldr	ip, [r3, #4]
+ 1452 09f0 80001CE3 		tst	ip, #128
+ 1453 09f4 FCFFFF0A 		beq	.L155
+ 1454              	.LBE162:
+ 1455              	.LBE165:
+ 1456              		.loc 1 189 0
+ 1457 09f8 012082E2 		add	r2, r2, #1
+ 1458              	.LVL95:
+ 1459 09fc 0228A0E1 		mov	r2, r2, asl #16
+ 1460 0a00 2228A0E1 		mov	r2, r2, lsr #16
+ 1461              	.LVL96:
+ 1462 0a04 0A0052E3 		cmp	r2, #10
+ 1463              	.LBB166:
+ 1464              	.LBB164:
+ 1465              		.loc 1 313 0
+ 1466 0a08 08C091E5 		ldr	ip, [r1, #8]
+ 1467              	.LBE164:
+ 1468              	.LBE166:
+ 1469              		.loc 1 189 0
+ 1470 0a0c F5FFFF1A 		bne	.L156
+ 1471              		.loc 1 196 0
+ 1472 0a10 3C319FE5 		ldr	r3, .L170
+ 1473 0a14 0C2093E5 		ldr	r2, [r3, #12]
+ 1474              	.LVL97:
+ 1475 0a18 802082E3 		orr	r2, r2, #128
+ 1476 0a1c 0C2083E5 		str	r2, [r3, #12]
+ 1477              		.loc 1 206 0
+ 1478 0a20 38519FE5 		ldr	r5, .L170+12
+ 1479              		.loc 1 196 0
+ 1480 0a24 0040A0E3 		mov	r4, #0
+ 1481              	.LVL98:
+ 1482              	.L159:
+ 1483              		.loc 1 202 0
+ 1484 0a28 0000A0E3 		mov	r0, #0
+ 1485 0a2c 0010A0E1 		mov	r1, r0
+ 1486 0a30 81FDFFEB 		bl	sd_raw_send_command_r1
+ 1487              		.loc 1 203 0
+ 1488 0a34 010050E3 		cmp	r0, #1
+ 1489              		.loc 1 202 0
+ 1490 0a38 0010A0E1 		mov	r1, r0
+ 1491              		.loc 1 203 0
+ 1492 0a3c 0C00000A 		beq	.L157
+ 1493              		.loc 1 206 0
+ 1494 0a40 050054E1 		cmp	r4, r5
+ 1495 0a44 0600001A 		bne	.L158
+ 1496              		.loc 1 208 0
+ 1497 0a48 14019FE5 		ldr	r0, .L170+16
+ 1498 0a4c FEFFFFEB 		bl	rprintf
+ 1499              		.loc 1 209 0
+ 1500 0a50 FC309FE5 		ldr	r3, .L170
+ 1501 0a54 042093E5 		ldr	r2, [r3, #4]
+ 1502 0a58 802082E3 		orr	r2, r2, #128
+ 1503 0a5c 042083E5 		str	r2, [r3, #4]
+ 1504 0a60 120000EA 		b	.L169
+ 1505              	.L158:
+ 1506              		.loc 1 200 0
+ 1507 0a64 014084E2 		add	r4, r4, #1
+ 1508              	.LVL99:
+ 1509 0a68 0448A0E1 		mov	r4, r4, asl #16
+ 1510 0a6c 2448A0E1 		mov	r4, r4, lsr #16
+ 1511              	.LVL100:
+ 1512              		.loc 1 212 0
+ 1513 0a70 ECFFFFEA 		b	.L159
+ 1514              	.L157:
+ 1515              		.loc 1 221 0
+ 1516 0a74 EC609FE5 		ldr	r6, .L170+20
+ 1517              		.loc 1 212 0
+ 1518 0a78 0050A0E3 		mov	r5, #0
+ 1519              	.LVL101:
+ 1520              	.L162:
+ 1521              		.loc 1 217 0
+ 1522 0a7c 0010A0E3 		mov	r1, #0
+ 1523 0a80 0100A0E3 		mov	r0, #1
+ 1524 0a84 6CFDFFEB 		bl	sd_raw_send_command_r1
+ 1525              		.loc 1 218 0
+ 1526 0a88 014010E2 		ands	r4, r0, #1
+ 1527 0a8c 0D00000A 		beq	.L160
+ 1528              		.loc 1 221 0
+ 1529 0a90 060055E1 		cmp	r5, r6
+ 1530 0a94 0700001A 		bne	.L161
+ 1531              		.loc 1 223 0
+ 1532 0a98 B4309FE5 		ldr	r3, .L170
+ 1533 0a9c 042093E5 		ldr	r2, [r3, #4]
+ 1534 0aa0 802082E3 		orr	r2, r2, #128
+ 1535              		.loc 1 224 0
+ 1536 0aa4 C0009FE5 		ldr	r0, .L170+24
+ 1537              		.loc 1 223 0
+ 1538 0aa8 042083E5 		str	r2, [r3, #4]
+ 1539              		.loc 1 224 0
+ 1540 0aac FEFFFFEB 		bl	rprintf
+ 1541              	.LVL102:
+ 1542              	.L169:
+ 1543 0ab0 0040A0E3 		mov	r4, #0
+ 1544              		.loc 1 225 0
+ 1545 0ab4 230000EA 		b	.L154
+ 1546              	.L161:
+ 1547              		.loc 1 215 0
+ 1548 0ab8 015085E2 		add	r5, r5, #1
+ 1549              	.LVL103:
+ 1550 0abc 0558A0E1 		mov	r5, r5, asl #16
+ 1551 0ac0 2558A0E1 		mov	r5, r5, lsr #16
+ 1552              	.LVL104:
+ 1553              		.loc 1 227 0
+ 1554 0ac4 ECFFFFEA 		b	.L162
+ 1555              	.L160:
+ 1556              		.loc 1 230 0
+ 1557 0ac8 1000A0E3 		mov	r0, #16
+ 1558 0acc 021CA0E3 		mov	r1, #512
+ 1559 0ad0 59FDFFEB 		bl	sd_raw_send_command_r1
+ 1560 0ad4 000050E3 		cmp	r0, #0
+ 1561 0ad8 0600000A 		beq	.L163
+ 1562              		.loc 1 232 0
+ 1563 0adc 70309FE5 		ldr	r3, .L170
+ 1564 0ae0 042093E5 		ldr	r2, [r3, #4]
+ 1565 0ae4 802082E3 		orr	r2, r2, #128
+ 1566              		.loc 1 233 0
+ 1567 0ae8 80009FE5 		ldr	r0, .L170+28
+ 1568              		.loc 1 232 0
+ 1569 0aec 042083E5 		str	r2, [r3, #4]
+ 1570              	.L168:
+ 1571              		.loc 1 233 0
+ 1572 0af0 FEFFFFEB 		bl	rprintf
+ 1573              		.loc 1 234 0
+ 1574 0af4 130000EA 		b	.L154
+ 1575              	.L163:
+ 1576              		.loc 1 238 0
+ 1577 0af8 54C09FE5 		ldr	ip, .L170
+ 1578 0afc 04E09CE5 		ldr	lr, [ip, #4]
+ 1579 0b00 80E08EE3 		orr	lr, lr, #128
+ 1580 0b04 04E08CE5 		str	lr, [ip, #4]
+ 1581              		.loc 1 245 0
+ 1582 0b08 64309FE5 		ldr	r3, .L170+32
+ 1583              		.loc 1 241 0
+ 1584 0b0c 3CE0A0E3 		mov	lr, #60
+ 1585 0b10 02C94CE2 		sub	ip, ip, #32768
+ 1586 0b14 0CE08CE5 		str	lr, [ip, #12]
+ 1587              		.loc 1 247 0
+ 1588 0b18 0140A0E3 		mov	r4, #1
+ 1589              		.loc 1 245 0
+ 1590 0b1c 00C0E0E3 		mvn	ip, #0
+ 1591              		.loc 1 249 0
+ 1592 0b20 081083E2 		add	r1, r3, #8
+ 1593 0b24 022CA0E3 		mov	r2, #512
+ 1594              		.loc 1 245 0
+ 1595 0b28 00C083E5 		str	ip, [r3, #0]
+ 1596              		.loc 1 247 0
+ 1597 0b2c 0440C3E5 		strb	r4, [r3, #4]
+ 1598              		.loc 1 249 0
+ 1599 0b30 FEFFFFEB 		bl	sd_raw_read
+ 1600 0b34 005050E2 		subs	r5, r0, #0
+ 1601              	.LVL105:
+ 1602 0b38 0200001A 		bne	.L154
+ 1603              		.loc 1 251 0
+ 1604 0b3c 34009FE5 		ldr	r0, .L170+36
+ 1605 0b40 FEFFFFEB 		bl	rprintf
+ 1606 0b44 0540A0E1 		mov	r4, r5
+ 1607              	.LVL106:
+ 1608              	.L154:
+ 1609              		.loc 1 257 0
+ 1610 0b48 0400A0E1 		mov	r0, r4
+ 1611 0b4c 7040BDE8 		ldmfd	sp!, {r4, r5, r6, lr}
+ 1612 0b50 1EFF2FE1 		bx	lr
+ 1613              	.L171:
+ 1614              		.align	2
+ 1615              	.L170:
+ 1616 0b54 008002E0 		.word	-536707072
+ 1617 0b58 00C002E0 		.word	-536690688
+ 1618 0b5c 00000000 		.word	.LC0
+ 1619 0b60 FF010000 		.word	511
+ 1620 0b64 17000000 		.word	.LC1
+ 1621 0b68 FF7F0000 		.word	32767
+ 1622 0b6c 28000000 		.word	.LC2
+ 1623 0b70 35000000 		.word	.LC3
+ 1624 0b74 00000000 		.word	.LANCHOR0
+ 1625 0b78 4B000000 		.word	.LC4
+ 1626              	.LFE0:
+ 1628              		.align	2
+ 1629              		.global	format_card
+ 1631              	format_card:
+ 1632              	.LFB12:
+ 877:SYSTEM/sd_raw.c **** 
+ 878:SYSTEM/sd_raw.c **** //NES : 10-28-7 
+ 879:SYSTEM/sd_raw.c **** //Low-level formats a 512MB card
+ 880:SYSTEM/sd_raw.c **** //Assumes *many* things
+ 881:SYSTEM/sd_raw.c **** //You must pass this fuction 0xAA to get it to work (safety check)
+ 882:SYSTEM/sd_raw.c **** char format_card(char make_sure)
+ 883:SYSTEM/sd_raw.c **** {
+ 1633              		.loc 1 883 0
+ 1634              		@ Function supports interworking.
+ 1635              		@ args = 0, pretend = 0, frame = 512
+ 1636              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1637              	.LVL107:
+ 1638 0b7c F0472DE9 		stmfd	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
+ 1639              	.LCFI6:
+ 884:SYSTEM/sd_raw.c **** 	#define MBR_LOCATION	0x00
+ 885:SYSTEM/sd_raw.c **** 	#define BR_LOCATION		(MBR_LOCATION+0x80000)
+ 886:SYSTEM/sd_raw.c **** 	#define FAT_TABLE		(BR_LOCATION + (0x200 * 512))
+ 887:SYSTEM/sd_raw.c **** 	#define ROOT_DIR		(BR_LOCATION + (0x0200 * 512) + (0x00F5 * 2 * 512))
+ 888:SYSTEM/sd_raw.c **** 
+ 889:SYSTEM/sd_raw.c **** 	//Safety check
+ 890:SYSTEM/sd_raw.c **** 	if (make_sure != 0xAA) return 0;
+ 1640              		.loc 1 890 0
+ 1641 0b80 AA0050E3 		cmp	r0, #170
+ 1642              		.loc 1 883 0
+ 1643 0b84 02DC4DE2 		sub	sp, sp, #512
+ 1644              	.LCFI7:
+ 1645              		.loc 1 890 0
+ 1646 0b88 0000A013 		movne	r0, #0
+ 1647              	.LVL108:
+ 1648 0b8c 6E00001A 		bne	.L174
+ 1649 0b90 0040A0E3 		mov	r4, #0
+ 1650              	.LVL109:
+ 891:SYSTEM/sd_raw.c **** 	
+ 892:SYSTEM/sd_raw.c **** 	int i;
+ 893:SYSTEM/sd_raw.c **** 	unsigned char my_buff[512];
+ 894:SYSTEM/sd_raw.c **** 	for(i = 0 ; i < 512 ; i++) my_buff[i] = 0x00;
+ 1651              		.loc 1 894 0
+ 1652 0b94 0D50A0E1 		mov	r5, sp
+ 1653 0b98 0430A0E1 		mov	r3, r4
+ 1654              	.L175:
+ 1655 0b9c 0430C5E7 		strb	r3, [r5, r4]
+ 1656 0ba0 014084E2 		add	r4, r4, #1
+ 1657 0ba4 020C54E3 		cmp	r4, #512
+ 1658 0ba8 FBFFFF1A 		bne	.L175
+ 895:SYSTEM/sd_raw.c **** 	
+ 896:SYSTEM/sd_raw.c **** 	//Init SD card interface
+ 897:SYSTEM/sd_raw.c **** 	sd_raw_init();
+ 1659              		.loc 1 897 0
+ 1660 0bac FEFFFFEB 		bl	sd_raw_init
+ 898:SYSTEM/sd_raw.c **** 
+ 899:SYSTEM/sd_raw.c **** 	//Erase Master Boot record
+ 900:SYSTEM/sd_raw.c **** 	sd_raw_sync();
+ 1661              		.loc 1 900 0
+ 1662 0bb0 FEFFFFEB 		bl	sd_raw_sync
+ 901:SYSTEM/sd_raw.c **** 	sd_raw_write(MBR_LOCATION, my_buff, 512);
+ 1663              		.loc 1 901 0
+ 1664 0bb4 0420A0E1 		mov	r2, r4
+ 1665 0bb8 0D10A0E1 		mov	r1, sp
+ 1666 0bbc 0000A0E3 		mov	r0, #0
+ 1667 0bc0 FEFFFFEB 		bl	sd_raw_write
+ 902:SYSTEM/sd_raw.c **** 
+ 903:SYSTEM/sd_raw.c **** 	//Erase Boot record
+ 904:SYSTEM/sd_raw.c **** 	sd_raw_sync();
+ 1668              		.loc 1 904 0
+ 1669 0bc4 FEFFFFEB 		bl	sd_raw_sync
+ 905:SYSTEM/sd_raw.c **** 	sd_raw_write(BR_LOCATION, my_buff, 512);
+ 1670              		.loc 1 905 0
+ 1671 0bc8 0420A0E1 		mov	r2, r4
+ 1672 0bcc 0207A0E3 		mov	r0, #524288
+ 1673 0bd0 0D10A0E1 		mov	r1, sp
+ 1674 0bd4 FEFFFFEB 		bl	sd_raw_write
+ 906:SYSTEM/sd_raw.c **** 
+ 907:SYSTEM/sd_raw.c **** 	//Erase FAT tables
+ 908:SYSTEM/sd_raw.c **** 	for(i = 0 ; i < 0x00F5 ; i++) //0x00F5 = 245 bytes : comes from byte 0x16 from Boot Record
+ 1675              		.loc 1 908 0
+ 1676 0bd8 78619FE5 		ldr	r6, .L180
+ 909:SYSTEM/sd_raw.c **** 	{
+ 910:SYSTEM/sd_raw.c **** 		sd_raw_sync();
+ 911:SYSTEM/sd_raw.c **** 		sd_raw_write( (FAT_TABLE + (i*512)), my_buff, 512);
+ 1677              		.loc 1 911 0
+ 1678 0bdc 0D50A0E1 		mov	r5, sp
+ 1679              		.loc 1 905 0
+ 1680 0be0 0347A0E3 		mov	r4, #786432
+ 1681              	.LVL110:
+ 1682              	.L176:
+ 1683              		.loc 1 910 0
+ 1684 0be4 FEFFFFEB 		bl	sd_raw_sync
+ 1685              		.loc 1 911 0
+ 1686 0be8 0400A0E1 		mov	r0, r4
+ 1687 0bec 0D10A0E1 		mov	r1, sp
+ 1688 0bf0 024C84E2 		add	r4, r4, #512
+ 1689 0bf4 022CA0E3 		mov	r2, #512
+ 1690 0bf8 FEFFFFEB 		bl	sd_raw_write
+ 1691              		.loc 1 908 0
+ 1692 0bfc 060054E1 		cmp	r4, r6
+ 1693 0c00 F7FFFF1A 		bne	.L176
+ 912:SYSTEM/sd_raw.c **** 	}
+ 913:SYSTEM/sd_raw.c **** 	
+ 914:SYSTEM/sd_raw.c **** 	//Write Master Boot Record
+ 915:SYSTEM/sd_raw.c **** 	#define PART1	0x01BE
+ 916:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 0] = 0x00;
+ 917:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 1] = 0x00;
+ 918:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 2] = 0x01;
+ 919:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 3] = 0x01;
+ 920:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 4] = 0x06;
+ 1694              		.loc 1 920 0
+ 1695 0c04 0620A0E3 		mov	r2, #6
+ 1696 0c08 C221CDE5 		strb	r2, [sp, #450]
+ 921:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 5] = 0x1F;
+ 1697              		.loc 1 921 0
+ 1698 0c0c 192082E2 		add	r2, r2, #25
+ 1699 0c10 C321CDE5 		strb	r2, [sp, #451]
+ 922:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 6] = 0xE0;
+ 1700              		.loc 1 922 0
+ 1701 0c14 1F20E0E3 		mvn	r2, #31
+ 1702              		.loc 1 916 0
+ 1703 0c18 0090A0E3 		mov	r9, #0
+ 1704              		.loc 1 918 0
+ 1705 0c1c 0130A0E3 		mov	r3, #1
+ 923:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 7] = 0xD3;
+ 924:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 8] = 0x00;
+ 925:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 9] = 0x04;
+ 926:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 10] = 0x00;
+ 927:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 11] = 0x00;
+ 928:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 12] = 0x00;
+ 929:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 13] = 0x4C;
+ 930:SYSTEM/sd_raw.c **** 	my_buff[PART1 + 14] = 0x0F;
+ 931:SYSTEM/sd_raw.c **** 	my_buff[510] = 0x55;
+ 1706              		.loc 1 931 0
+ 1707 0c20 5540A0E3 		mov	r4, #85
+ 1708              		.loc 1 925 0
+ 1709 0c24 04A0A0E3 		mov	sl, #4
+ 1710              		.loc 1 929 0
+ 1711 0c28 4C80A0E3 		mov	r8, #76
+ 1712              		.loc 1 930 0
+ 1713 0c2c 0F70A0E3 		mov	r7, #15
+ 932:SYSTEM/sd_raw.c **** 	my_buff[511] = 0xAA;
+ 1714              		.loc 1 932 0
+ 1715 0c30 5560E0E3 		mvn	r6, #85
+ 1716              		.loc 1 922 0
+ 1717 0c34 C421CDE5 		strb	r2, [sp, #452]
+ 1718              		.loc 1 923 0
+ 1719 0c38 2C20E0E3 		mvn	r2, #44
+ 1720              		.loc 1 919 0
+ 1721 0c3c C131CDE5 		strb	r3, [sp, #449]
+ 1722              		.loc 1 918 0
+ 1723 0c40 C031CDE5 		strb	r3, [sp, #448]
+ 1724              		.loc 1 923 0
+ 1725 0c44 C521CDE5 		strb	r2, [sp, #453]
+ 1726              		.loc 1 916 0
+ 1727 0c48 BE91CDE5 		strb	r9, [sp, #446]
+ 1728              		.loc 1 917 0
+ 1729 0c4c BF91CDE5 		strb	r9, [sp, #447]
+ 1730              		.loc 1 924 0
+ 1731 0c50 C691CDE5 		strb	r9, [sp, #454]
+ 1732              		.loc 1 925 0
+ 1733 0c54 C7A1CDE5 		strb	sl, [sp, #455]
+ 1734              		.loc 1 926 0
+ 1735 0c58 C891CDE5 		strb	r9, [sp, #456]
+ 1736              		.loc 1 927 0
+ 1737 0c5c C991CDE5 		strb	r9, [sp, #457]
+ 1738              		.loc 1 928 0
+ 1739 0c60 CA91CDE5 		strb	r9, [sp, #458]
+ 1740              		.loc 1 929 0
+ 1741 0c64 CB81CDE5 		strb	r8, [sp, #459]
+ 1742              		.loc 1 930 0
+ 1743 0c68 CC71CDE5 		strb	r7, [sp, #460]
+ 1744              		.loc 1 931 0
+ 1745 0c6c FE41CDE5 		strb	r4, [sp, #510]
+ 1746              		.loc 1 932 0
+ 1747 0c70 FF61CDE5 		strb	r6, [sp, #511]
+ 933:SYSTEM/sd_raw.c **** 
+ 934:SYSTEM/sd_raw.c **** 	sd_raw_sync();
+ 1748              		.loc 1 934 0
+ 1749 0c74 FEFFFFEB 		bl	sd_raw_sync
+ 935:SYSTEM/sd_raw.c **** 	sd_raw_write(MBR_LOCATION, my_buff, 512);
+ 1750              		.loc 1 935 0
+ 1751 0c78 0D10A0E1 		mov	r1, sp
+ 1752 0c7c 022CA0E3 		mov	r2, #512
+ 1753 0c80 0900A0E1 		mov	r0, r9
+ 1754 0c84 FEFFFFEB 		bl	sd_raw_write
+ 936:SYSTEM/sd_raw.c **** 	sd_raw_sync();
+ 1755              		.loc 1 936 0
+ 1756 0c88 FEFFFFEB 		bl	sd_raw_sync
+ 937:SYSTEM/sd_raw.c **** 
+ 938:SYSTEM/sd_raw.c **** 	//Write Boot Record
+ 939:SYSTEM/sd_raw.c **** 	#define BOOTRECORD1	0x80000
+ 940:SYSTEM/sd_raw.c **** 	my_buff[0] = 0xEB;
+ 1757              		.loc 1 940 0
+ 1758 0c8c 1410E0E3 		mvn	r1, #20
+ 1759 0c90 0010CDE5 		strb	r1, [sp, #0]
+ 941:SYSTEM/sd_raw.c **** 	my_buff[1] = 0xFE;
+ 1760              		.loc 1 941 0
+ 1761 0c94 131081E2 		add	r1, r1, #19
+ 1762 0c98 0110CDE5 		strb	r1, [sp, #1]
+ 942:SYSTEM/sd_raw.c **** 	my_buff[2] = 0x90;
+ 1763              		.loc 1 942 0
+ 1764 0c9c 6F10E0E3 		mvn	r1, #111
+ 1765 0ca0 0210CDE5 		strb	r1, [sp, #2]
+ 943:SYSTEM/sd_raw.c **** 	my_buff[12] = 0x02;
+ 944:SYSTEM/sd_raw.c **** 	my_buff[13] = 0x10;
+ 1766              		.loc 1 944 0
+ 1767 0ca4 801081E2 		add	r1, r1, #128
+ 1768 0ca8 0D10CDE5 		strb	r1, [sp, #13]
+ 945:SYSTEM/sd_raw.c **** 	my_buff[14] = 0x16;
+ 1769              		.loc 1 945 0
+ 1770 0cac 061081E2 		add	r1, r1, #6
+ 1771 0cb0 0E10CDE5 		strb	r1, [sp, #14]
+ 946:SYSTEM/sd_raw.c **** 	my_buff[16] = 0x02;
+ 947:SYSTEM/sd_raw.c **** 	my_buff[18] = 0x02;
+ 948:SYSTEM/sd_raw.c **** 	my_buff[21] = 0xF8;
+ 1772              		.loc 1 948 0
+ 1773 0cb4 0710E0E3 		mvn	r1, #7
+ 1774 0cb8 1510CDE5 		strb	r1, [sp, #21]
+ 949:SYSTEM/sd_raw.c **** 	my_buff[22] = 0xF5;
+ 1775              		.loc 1 949 0
+ 1776 0cbc 0A10E0E3 		mvn	r1, #10
+ 1777 0cc0 1610CDE5 		strb	r1, [sp, #22]
+ 950:SYSTEM/sd_raw.c **** 	my_buff[24] = 0x20;
+ 951:SYSTEM/sd_raw.c **** 	my_buff[26] = 0x20;
+ 952:SYSTEM/sd_raw.c **** 	my_buff[29] = 0x04;
+ 953:SYSTEM/sd_raw.c **** 	my_buff[33] = 0x4C;
+ 954:SYSTEM/sd_raw.c **** 	my_buff[34] = 0x0F;
+ 955:SYSTEM/sd_raw.c **** 	my_buff[38] = 0x29;
+ 1778              		.loc 1 955 0
+ 1779 0cc4 341081E2 		add	r1, r1, #52
+ 1780 0cc8 2610CDE5 		strb	r1, [sp, #38]
+ 956:SYSTEM/sd_raw.c **** 	my_buff[54] = 0x46;
+ 1781              		.loc 1 956 0
+ 1782 0ccc 1D1081E2 		add	r1, r1, #29
+ 1783 0cd0 3610CDE5 		strb	r1, [sp, #54]
+ 957:SYSTEM/sd_raw.c **** 	my_buff[55] = 0x41;
+ 1784              		.loc 1 957 0
+ 1785 0cd4 4110A0E3 		mov	r1, #65
+ 1786 0cd8 3710CDE5 		strb	r1, [sp, #55]
+ 958:SYSTEM/sd_raw.c **** 	my_buff[56] = 0x54;
+ 1787              		.loc 1 958 0
+ 1788 0cdc 131081E2 		add	r1, r1, #19
+ 1789 0ce0 3810CDE5 		strb	r1, [sp, #56]
+ 959:SYSTEM/sd_raw.c **** 	my_buff[57] = 0x31;
+ 1790              		.loc 1 959 0
+ 1791 0ce4 3110A0E3 		mov	r1, #49
+ 1792              		.loc 1 950 0
+ 1793 0ce8 2030A0E3 		mov	r3, #32
+ 1794              		.loc 1 943 0
+ 1795 0cec 0220A0E3 		mov	r2, #2
+ 1796              		.loc 1 959 0
+ 1797 0cf0 3910CDE5 		strb	r1, [sp, #57]
+ 960:SYSTEM/sd_raw.c **** 	my_buff[58] = 0x36;
+ 1798              		.loc 1 960 0
+ 1799 0cf4 051081E2 		add	r1, r1, #5
+ 961:SYSTEM/sd_raw.c **** 	my_buff[59] = 0x20;
+ 962:SYSTEM/sd_raw.c **** 	my_buff[60] = 0x20;
+ 963:SYSTEM/sd_raw.c **** 	my_buff[61] = 0x20;
+ 1800              		.loc 1 963 0
+ 1801 0cf8 3D30CDE5 		strb	r3, [sp, #61]
+ 1802              		.loc 1 950 0
+ 1803 0cfc 1830CDE5 		strb	r3, [sp, #24]
+ 1804              		.loc 1 951 0
+ 1805 0d00 1A30CDE5 		strb	r3, [sp, #26]
+ 1806              		.loc 1 961 0
+ 1807 0d04 3B30CDE5 		strb	r3, [sp, #59]
+ 1808              		.loc 1 962 0
+ 1809 0d08 3C30CDE5 		strb	r3, [sp, #60]
+ 1810              		.loc 1 947 0
+ 1811 0d0c 1220CDE5 		strb	r2, [sp, #18]
+ 1812              		.loc 1 960 0
+ 1813 0d10 3A10CDE5 		strb	r1, [sp, #58]
+ 1814              		.loc 1 943 0
+ 1815 0d14 0C20CDE5 		strb	r2, [sp, #12]
+ 1816              		.loc 1 946 0
+ 1817 0d18 1020CDE5 		strb	r2, [sp, #16]
+ 1818              		.loc 1 952 0
+ 1819 0d1c 1DA0CDE5 		strb	sl, [sp, #29]
+ 1820              		.loc 1 953 0
+ 1821 0d20 2180CDE5 		strb	r8, [sp, #33]
+ 1822              		.loc 1 954 0
+ 1823 0d24 2270CDE5 		strb	r7, [sp, #34]
+ 964:SYSTEM/sd_raw.c **** 	my_buff[510] = 0x55;
+ 965:SYSTEM/sd_raw.c **** 	my_buff[511] = 0xAA;
+ 1824              		.loc 1 965 0
+ 1825 0d28 FF61CDE5 		strb	r6, [sp, #511]
+ 1826              		.loc 1 964 0
+ 1827 0d2c FE41CDE5 		strb	r4, [sp, #510]
+ 966:SYSTEM/sd_raw.c **** 	
+ 967:SYSTEM/sd_raw.c **** 	sd_raw_sync();
+ 1828              		.loc 1 967 0
+ 1829 0d30 FEFFFFEB 		bl	sd_raw_sync
+ 968:SYSTEM/sd_raw.c **** 	sd_raw_write(BR_LOCATION, my_buff, 512);
+ 1830              		.loc 1 968 0
+ 1831 0d34 0D10A0E1 		mov	r1, sp
+ 1832 0d38 022CA0E3 		mov	r2, #512
+ 1833 0d3c 0207A0E3 		mov	r0, #524288
+ 1834 0d40 FEFFFFEB 		bl	sd_raw_write
+ 969:SYSTEM/sd_raw.c **** 	sd_raw_sync();
+ 1835              		.loc 1 969 0
+ 1836 0d44 FEFFFFEB 		bl	sd_raw_sync
+ 1837 0d48 0400A0E1 		mov	r0, r4
+ 1838              	.L174:
+ 970:SYSTEM/sd_raw.c **** 	
+ 971:SYSTEM/sd_raw.c **** 	return(0x55); //Successful format
+ 972:SYSTEM/sd_raw.c **** }
+ 1839              		.loc 1 972 0
+ 1840 0d4c 02DC8DE2 		add	sp, sp, #512
+ 1841 0d50 F047BDE8 		ldmfd	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
+ 1842 0d54 1EFF2FE1 		bx	lr
+ 1843              	.L181:
+ 1844              		.align	2
+ 1845              	.L180:
+ 1846 0d58 00EA0D00 		.word	911872
+ 1847              	.LFE12:
+ 1849              		.section	.rodata.str1.1,"aMS",%progbits,1
+ 1850              	.LC0:
+ 1851 0000 53442052 		.ascii	"SD RAW NOT AVAILABLE\012\015\000"
+ 1851      4157204E 
+ 1851      4F542041 
+ 1851      5641494C 
+ 1851      41424C45 
+ 1852              	.LC1:
+ 1853 0017 0A0D7265 		.ascii	"\012\015response: %d\012\015\000"
+ 1853      73706F6E 
+ 1853      73653A20 
+ 1853      25640A0D 
+ 1853      00
+ 1854              	.LC2:
+ 1855 0028 69203D20 		.ascii	"i = 0x7fff\012\015\000"
+ 1855      30783766 
+ 1855      66660A0D 
+ 1855      00
+ 1856              	.LC3:
+ 1857 0035 424C4F43 		.ascii	"BLOCK SIZE SET ERR \012\015\000"
+ 1857      4B205349 
+ 1857      5A452053 
+ 1857      45542045 
+ 1857      5252200A 
+ 1858              	.LC4:
+ 1859 004b 73645F72 		.ascii	"sd_raw_read borks\012\015\000"
+ 1859      61775F72 
+ 1859      65616420 
+ 1859      626F726B 
+ 1859      730A0D00 
+ 1860              		.bss
+ 1861              		.align	2
+ 1862              		.set	.LANCHOR0,. + 0
+ 1865              	raw_block_address:
+ 1866 0000 00000000 		.space	4
+ 1869              	raw_block_written:
+ 1870 0004 00       		.space	1
+ 1871 0005 000000   		.space	3
+ 1874              	raw_block:
+ 1875 0008 00000000 		.space	512
+ 1875      00000000 
+ 1875      00000000 
+ 1875      00000000 
+ 1875      00000000 
+ 2168              	.Letext0:
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 sd_raw.c
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:23     .text:0000000000000000 sd_raw_available
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:32     .text:0000000000000000 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:50     .text:0000000000000030 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:56     .text:0000000000000034 sd_raw_locked
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:64     .text:0000000000000034 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:70     .text:000000000000003c sd_raw_send_command_r1
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:247    .text:0000000000000148 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:253    .text:000000000000014c SDoff
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:261    .text:000000000000014c $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:275    .text:0000000000000170 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:281    .text:0000000000000174 sd_raw_get_info
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:288    .text:0000000000000174 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:401    .text:0000000000000248 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:418    .text:0000000000000284 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:570    .text:0000000000000384 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:582    .text:00000000000003ac $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:690    .text:000000000000045c $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:697    .text:0000000000000464 sd_raw_write
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:704    .text:0000000000000464 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:973    .text:0000000000000670 sd_raw_read
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:963    .text:000000000000065c $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:980    .text:0000000000000670 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1223   .text:000000000000082c $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1232   .text:000000000000083c sd_raw_read_interval
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1239   .text:000000000000083c $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1317   .text:0000000000000900 sd_raw_sync
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1344   .text:0000000000000934 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1350   .text:0000000000000938 sd_raw_init
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1357   .text:0000000000000938 $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1616   .text:0000000000000b54 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1631   .text:0000000000000b7c format_card
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1638   .text:0000000000000b7c $a
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1846   .text:0000000000000d58 $d
+                             .bss:0000000000000000 $d
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1865   .bss:0000000000000000 raw_block_address
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1869   .bss:0000000000000004 raw_block_written
+/var/folders/c7/c7+1KegJECCEn2gM8K5Cj++++TI/-Tmp-//ccqCuoX8.s:1874   .bss:0000000000000008 raw_block
+
+UNDEFINED SYMBOLS
+memset
+memcpy
+rprintf

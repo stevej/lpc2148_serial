@@ -1,0 +1,10 @@
+FW.SFE
+.dep/
+*.o
+*.hex
+*.bin
+*.lst
+*.sym
+*.elf
+*.map
+*.lss
