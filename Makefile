@@ -27,6 +27,7 @@ RUN_MODE=ROM_RUN
 TARGET = main
 
 SYSPATH = SYSTEM/
+USBPATH = LPCUSB/
 
 # List C source files here. (C dependencies are automatically generated.)
 # use file-extension c for "c-only"-files
@@ -89,7 +90,7 @@ DEBUG = dwarf-2
 
 # List any extra directories to look for include files here.
 #     Each directory must be seperated by a space.
-EXTRAINCDIRS = $(SYSPATH)
+EXTRAINCDIRS = $(SYSPATH) $(USBPATH)
 
 # List any extra directories to look for library files here.
 #     Each directory must be seperated by a space.

@@ -1,6 +1,6 @@
 /******************************************************************************/
-/*		  											  */
-/*		  			Copyright Spark Fun Electronics                           */
+/*                                                                                                        */
+/*                                      Copyright Spark Fun Electronics                           */
 /******************************************************************************/
 #include "system.h"
 #include "LPC214x.h"
@@ -43,7 +43,7 @@ void delay_ms(int count)
     count *= 10000;
     for (i = 0; i < count; i++)
     {
-	asm volatile ("nop");
+        asm volatile ("nop");
     }
 }
 
@@ -52,8 +52,8 @@ void boot_up(void)
     //Initialize the MCU clock PLL
     system_init();
 
-	IODIR0 |= (1 << 31);
-	IOCLR0 |= (1 << 31); //Turn on USB LED
+        IODIR0 |= (1 << 31);
+        IOCLR0 |= (1 << 31); //Turn on USB LED
 
     //Init UART0 for debug
     PINSEL0 |= 0x00000005; //enable uart0
@@ -66,7 +66,7 @@ void boot_up(void)
     rprintf_devopen(putc_serial0);
     rprintf("\n\n\nUSB Bootloader v1.1\n");
 
-	//IOSET0 |= (1 << 31); //Turn off USB LED
+        //IOSET0 |= (1 << 31); //Turn off USB LED
 }
 
 /**********************************************************
