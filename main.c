@@ -2,7 +2,7 @@
 
 #define PLOCK 0x400
 /**
- * Much of this code came from futz's RS232 article:
+ * Much of the bit-fiddling setup code came from futz's RS232 article:
  * http://bit.ly/bbpgj2
  */
 void init(void);
