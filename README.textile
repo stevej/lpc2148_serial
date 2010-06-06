@@ -1,1 +1,8 @@
-An example of working with serial IO (RS232) with the SparkFun UberBoard v2.
+An example of working with serial IO (RS232) with the SparkFun UberBoard v2 using OS X.
+
+Our ARM-GCC toolchain is supplied by running the following "script":http://github.com/stevej/summon-arm-toolchain
+
+How to use screen with this device:
+<code>
+screen /dev/tty.usbserial 115200,cs8,-ixon,-ixon,istrip
+</code>
