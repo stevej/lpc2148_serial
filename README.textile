@@ -1,0 +1,1 @@
+An example of working with serial IO (RS232) with the SparkFun UberBoard v2.
